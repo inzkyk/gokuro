@@ -1,0 +1,4 @@
+#+MACRO: verbatim ($0)
+#+MACRO: macro5 ($1,$2,$3,$4,$5)
+
+{{{paren(some text)}}}

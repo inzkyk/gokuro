@@ -3,58 +3,12 @@
 #include <stdbool.h>
 #include <time.h>
 
+#include "buffer.h"
+
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
-#define BUF_MAX_SIZE (1024 * 1024 * 10)
-#define MIN(a,b) (a) < (b) ? (a) :(b)
-#define MAX(a,b) (a) > (b) ? (a) :(b)
-
-size_t find_char(const char *buf, size_t size, char c) {
-  for (size_t i = 0; i < size; i++) {
-    if (buf[i] == c) {
-      return i;
-    }
-  }
-  return size + 1;
-}
-
-char *get_line(char *buf, size_t buf_size, FILE *f) {
-  char *line = fgets(buf, buf_size, f);
-
-  if (line == NULL) {
-    return NULL;
-  }
-
-  size_t index_of_null = find_char(line, buf_size, '\0');
-  bool line_too_long = (index_of_null == buf_size - 1) && (buf[index_of_null - 1] != '\n');
-  while (line_too_long) {
-    size_t old_buf_size = buf_size;
-    buf_size = buf_size * 2;
-    if (buf_size > BUF_MAX_SIZE) {
-      return NULL;
-    }
-
-    char *tmp = realloc(buf, buf_size);
-    if (tmp == NULL) {
-      return NULL;
-    }
-    buf = tmp;
-    line = tmp;
-
-    size_t offset = old_buf_size - 1; // minus one for a null character.
-    tmp = fgets(buf + offset, buf_size - offset, f);
-    if (tmp == NULL) {
-      break;
-    }
-    index_of_null += find_char(buf + offset, buf_size - offset, '\0');
-    line_too_long = (index_of_null == buf_size - 1) && (buf[buf_size - 1] != '\n');
-  }
-
-  return line;
-}
-
-bool begin_with(char *a, char *b) {
+bool begin_with(const char *a, const char *b) {
   size_t i = 0;
   while (true) {
     if (a[i] == '\0' || b[i] == '\0') {
@@ -69,7 +23,7 @@ bool begin_with(char *a, char *b) {
   }
 }
 
-bool end_width(char *a, char c) {
+bool end_with(const char *a, const char c) {
   size_t i = 0;
   bool just_read_c = false;
   while (true) {
@@ -82,67 +36,17 @@ bool end_width(char *a, char c) {
   }
 }
 
-typedef struct
-{
-  char *base;
-  size_t capacity;
-  size_t used;
-} memory_pool_t;
-
-void memory_pool_init(memory_pool_t *pool, size_t capacity) {
-  pool->base = malloc(capacity);
-  pool->capacity = capacity;
-  pool->used = 0;
-}
-
-bool memory_pool_is_initialized(memory_pool_t *pool) {
-  return pool->base != NULL;
-}
-
-void memory_pool_realloc(memory_pool_t *pool, size_t new_capacity) {
-  char *tmp = realloc(pool->base, new_capacity);
-  if (tmp == NULL) {
-    free(pool->base);
-    pool->base = NULL;
-    return;
-  }
-
-  pool->base = tmp;
-  pool->capacity = new_capacity;
-  if (pool->capacity < pool->used) {
-    pool->used = pool->capacity;
-  }
-}
-
-void memory_pool_free(memory_pool_t *pool) {
-  free(pool->base);
-}
-
-char *memory_pool_put(memory_pool_t *pool, char *buf, size_t buf_size) {
-  if (pool->used + buf_size > pool->capacity) {
-    size_t new_capacity = MAX(2 * pool->capacity, pool->used + buf_size);
-    memory_pool_realloc(pool, new_capacity);
-  }
-
-  for (size_t i = 0; i < buf_size; i++) {
-    pool->base[pool->used + i] = buf[i];
-  }
-  char *retval = pool->base + pool->used;
-  pool->used += buf_size;
-  return retval;
-}
-
 typedef struct {
-  char *name;
+  size_t name_offset;
   size_t name_length;
-  char *body;
+  size_t body_offset;
   size_t body_length;
-} macro;
+} macro_def;
 
 typedef struct {
   size_t key;
-  macro value;
-} macro_hash;
+  macro_def value;
+} macro_hash_t;
 
 // https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
 size_t
@@ -158,97 +62,92 @@ fnv1_hash_64(const char *byte, size_t length)
 }
 
 int main() {
-  size_t line_buf_size = 1024 * 4;
-  char *line_buf = malloc(line_buf_size);
-  if (line_buf == NULL) {
+  const size_t buffer_initial_size = 4;
+  buffer_t line_buf = {0};
+  buffer_init(&line_buf, buffer_initial_size);
+  if (line_buf.data == NULL) {
     return 1;
   }
 
-  size_t temp_buf_size = 1024 * 4;
-  char *temp_buf = malloc(temp_buf_size);
-  if (line_buf == NULL) {
+  buffer_t temp_buf = {0};
+  buffer_init(&temp_buf, buffer_initial_size);
+  if (temp_buf.data == NULL) {
     return 1;
   }
 
-  memory_pool_t macro_names = {0};
-  memory_pool_init(&macro_names, 1024);
-  if (!memory_pool_is_initialized(&macro_names)) {
+  buffer_t macro_names = {0};
+  buffer_init(&macro_names, buffer_initial_size);
+  if (macro_names.data == NULL) {
     return 1;
   }
 
-  memory_pool_t macro_values = {0};
-  memory_pool_init(&macro_values, 1025 * 16);
-  if (!memory_pool_is_initialized(&macro_values)) {
+  buffer_t macro_values = {0};
+  buffer_init(&macro_values, buffer_initial_size);
+  if (macro_values.data == NULL) {
     return 1;
   }
 
   time_t t = time(NULL);
   stbds_rand_seed(t);
 
-  macro_hash *macros = NULL;
+  macro_hash_t *macros = NULL;
 
   while (true) {
-    char *line = get_line(line_buf, line_buf_size, stdin);
-    if (line == NULL) {
+    buffer_get_line(&line_buf, stdin);
+    if (line_buf.capacity == 0) {
       break;
     }
 
-    if (!end_width(line, '\n')) {
-      // This is the last line of the input.
-      fprintf(stdout, "%s", line);
+    if (!end_with(line_buf.data, '\n')) {
+      // This line is the last line of the input.
+      fprintf(stdout, "%s", line_buf.data);
       break;
     }
 
-    size_t line_length = 0;
-    while (true) {
-      if (line[line_length] == '\n') {
-        break;
-      }
-      line_length++;
-    }
-
-    if (begin_with(line, "#+MACRO: ")) {
+    if (begin_with(line_buf.data, "#+MACRO: ")) {
       // This line may define a macro.
+      const size_t line_length = line_buf.used - 2;
       const size_t name_offset = 9; // 9 = strlen("#+MACRO: ")
+      const size_t invalid = line_length + 1;
 
-      if (line[name_offset] == '\n') {
+      if (line_buf.data[name_offset] == '\n') {
         break;
       }
 
-      size_t macro_name_length = 0;
+      size_t name_length = 0;
       while (true) {
-        if (line[name_offset + macro_name_length] == ' ') {
+        if (line_buf.data[name_offset + name_length] == ' ') {
           break;
         }
-        if (line[name_offset + macro_name_length] == '\n') {
+        if (line_buf.data[name_offset + name_length] == '\n') {
           // This line does not define a macro.
-          macro_name_length = line_length + 1;
+          name_length = invalid;
           break;
         }
-        macro_name_length++;
+        name_length++;
       }
 
-      if (macro_name_length == line_length + 1) {
-        fprintf(stdout, "%s", line);
+      if (name_length == invalid) {
+        fprintf(stdout, "%s", line_buf.data);
         continue;
       }
 
-      char *macro_name = memory_pool_put(&macro_names, line + name_offset, macro_name_length);
-      memory_pool_put(&macro_names, "", 1);
-      size_t macro_name_hash = fnv1_hash_64(line + name_offset, macro_name_length);
+      buffer_put(&macro_names, line_buf.data + name_offset, name_length);
+      buffer_put(&macro_names, "", 1);
 
-      size_t value_offset = name_offset + macro_name_length + 1; // 1 = strlen(" ")
-      size_t macro_value_length = line_length - value_offset;
-      char *macro_value = memory_pool_put(&macro_values, line + value_offset, macro_value_length);
-      memory_pool_put(&macro_values, "", 1);
+      size_t body_offset = name_offset + name_length + 1; // 1 = strlen(" ")
+      size_t body_length = line_length - body_offset;
+      buffer_put(&macro_values, line_buf.data + body_offset, body_length);
+      buffer_put(&macro_values, "", 1);
 
-      macro m = {macro_name, macro_name_length, macro_value, macro_value_length};
+      macro_def m = {macro_names.used - 1 - name_length, name_length, macro_values.used - 1 - body_length, body_length};
+      size_t macro_name_hash = fnv1_hash_64(line_buf.data + name_offset, name_length);
       hmput(macros, macro_name_hash, m);
     }
 
     // macro expansion
     while (true) {
-      fprintf(stderr, "processing: %s\n", line);
+      const size_t line_length = line_buf.used - 2;
       const size_t bbb_offset = 3; // 3 = strlen("{{{") or strlen("}}}")
       const size_t invalid_index = line_length + 1;
       size_t macro_begin = invalid_index;
@@ -257,29 +156,28 @@ int main() {
         // find the last macro call.
         size_t i = line_length;
         while (true) {
-          fprintf(stderr, "i = %zu\n", i);
           if (i < bbb_offset - 1) {
             break;
           }
-          if (line[i] == '{') {
+          if (line_buf.data[i] == '{') {
             i--;
-            if (line[i] == '{') {
+            if (line_buf.data[i] == '{') {
               i--;
-              if (line[i] == '{') {
+              if (line_buf.data[i] == '{') {
                 macro_begin = i;
                 break;
               }
             }
-          } else if (line[i] == '}') {
+          } else if (line_buf.data[i] == '}') {
             i--;
-            if (line[i] == '}') {
+            if (line_buf.data[i] == '}') {
               i--;
-              if (line[i] == '}') {
-                macro_end = i + 3;
+              if (line_buf.data[i] == '}') {
                 if (i == 0) {
                   macro_end = invalid_index;
                   break;
                 }
+                macro_end = i + 3;
                 i--;
                 continue;
               }
@@ -295,61 +193,63 @@ int main() {
         break;
       }
 
-      bool isConstant = true;
-      for (size_t i = macro_begin + bbb_offset; i < macro_end - bbb_offset; i++) {
-        if (line[i] == '(') {
-          isConstant = false;
+      size_t i = macro_begin;
+      while (true) {
+        if (line_buf.data[i] == '(' || line_buf.data[i] == '}') {
           break;
         }
+        i++;
       }
+      const char *macro_name = line_buf.data + macro_begin + bbb_offset;
+      size_t name_length = i - macro_begin - bbb_offset;
+      bool isConstant = (macro_end - macro_begin - 2 * bbb_offset) == name_length;
 
-      if (isConstant) {
-        char *macro_name = line + macro_begin + bbb_offset;
-        size_t macro_name_length = macro_end - macro_begin - 2 * bbb_offset;
-        size_t macro_name_hash = fnv1_hash_64(macro_name, macro_name_length);
-        macro m = hmget(macros, macro_name_hash);
-        // m may be zero value, but that is not a problem in the following procedure.
+      if (isConstant || true) {
+        size_t macro_name_hash = fnv1_hash_64(macro_name, name_length);
+        macro_def m = hmget(macros, macro_name_hash);
+        // m may be a zero value, which is not a problem in the following procedure.
 
         // temp_buf = line[macro_end:]
-        if (temp_buf_size < line_length - macro_end) {
-          temp_buf_size = line_length - macro_end;
-          char *tmp = realloc(temp_buf, temp_buf_size);
-          if (tmp == NULL) {
-            return 1;
-          }
-          temp_buf = tmp;
-        }
-        for (size_t i = 0; i < line_length - macro_end; i++) {
-          temp_buf[i] = line[macro_end + i];
-        }
+        temp_buf.used = 0;
+        buffer_put(&temp_buf, line_buf.data + macro_end, line_length - macro_end + 2); // 2 = strlen("\n\0")
 
         // line = line[:macro_begin] + macro_body + line[maro_end:]
-        size_t new_line_length = macro_begin + m.body_length + (line_length - macro_end);
-        if (line_buf_size < new_line_length + 1) {
-          char *tmp = realloc(temp_buf, new_line_length + 1);
-          if (tmp == NULL) {
-            return 1;
+        line_buf.used = macro_begin;
+        buffer_put(&line_buf, macro_values.data + m.body_offset, m.body_length);
+        buffer_copy(&line_buf, &temp_buf);
+      } else {
+        // $0
+        size_t i = 0;
+        while (i < line_length - 1) {
+          if (line_buf.data[i] == '$') {
+            i++;
+            if (line_buf.data[i] == '0') {
+              break;
+            }
           }
-          temp_buf = tmp;
         }
-        for (size_t i = 0; i < m.body_length; i++) {
-          line[macro_begin + i] = m.body[i];
-        }
-        for (size_t i = 0; i < line_length - macro_end; i++) {
-          line[macro_begin + m.body_length + i] = temp_buf[i];
-        }
-        line[new_line_length] = '\n';
-        line[new_line_length+1] = '\0';
-        line_length = new_line_length;
+        i++;
+        break;
       }
-    }
 
-    fprintf(stdout, "%s", line);
+      /* if (!isConstant) { */
+      /*   struct { */
+      /*     macro_def *macro; */
+      /*     char *text_begin; */
+      /*     char *text_nd; */
+      /*     char *args[10]; */
+      /*   } call; */
+
+      /*   fprintf(stderr, "hoge\n"); */
+      /* } */
+    }
+    fprintf(stdout, "%s", line_buf.data);
   }
 
-  memory_pool_free(&macro_names);
-  memory_pool_free(&macro_values);
-  free(line_buf);
-  free(temp_buf);
+  free(macro_names.data);
+  free(macro_values.data);
+  free(line_buf.data);
+  free(temp_buf.data);
+  hmfree(macros);
   return 0;
 }
