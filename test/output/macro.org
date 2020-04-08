@@ -1,0 +1,23 @@
+#+MACRO: value1 1
+#+MACRO: value22 22
+#+MACRO: value333 333
+#+MACRO: value4444 4444
+#+MACRO: value55555 55555
+#+MACRO: value666666 666666
+#+MACRO: value0
+
+1
+22
+333
+4444
+55555
+666666
+
+value1 is 1.
+value22 is 22.
+value333 is 333.
+value4444 is 4444.
+value55555 is 55555.
+value666666 is 666666.
+
+122333444455555666666

@@ -1,0 +1,23 @@
+#+MACRO: value1 1
+#+MACRO: value22 22
+#+MACRO: value333 333
+#+MACRO: value4444 4444
+#+MACRO: value55555 55555
+#+MACRO: value666666 666666
+#+MACRO: value0
+
+{{{value1}}}
+{{{value22}}}
+{{{value333}}}
+{{{value4444}}}
+{{{value55555}}}
+{{{value666666}}}
+
+value1 is {{{value1}}}.
+value22 is {{{value22}}}.
+value333 is {{{value333}}}.
+value4444 is {{{value4444}}}.
+value55555 is {{{value55555}}}.
+value666666 is {{{value666666}}}.
+
+{{{value1}}}{{{value22}}}{{{value333}}}{{{value4444}}}{{{value55555}}}{{{value666666}}}

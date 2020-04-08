@@ -1,0 +1,11 @@
+#+MACRO: value 1
+
+{{{hoge}}}
+
+{{{
+
+}}}
+
+{{{hoge{{{value}}}}}}
+
+{{{value}}}}}}
