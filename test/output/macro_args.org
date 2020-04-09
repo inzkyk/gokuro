@@ -1,0 +1,13 @@
+#+MACRO: verbatim ($0)
+#+MACRO: macro5 ($1,$2,$3,$4,$5)
+#+MACRO: macro9 $1-$2-$3-$4-$5-$6-$7-$8-$9
+
+text (some text) text
+
+text (1,2,3,4,5) text
+
+text (a,bb,ccc,dddd,eeeee) text
+
+text 1-2-3-4-5-6-7-8-9 text
+
+text a-bb-ccc-dddd-eeeee-ffffff-ggggggg-hhhhhhhh-iiiiiiiii text

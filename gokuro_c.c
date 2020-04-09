@@ -37,10 +37,10 @@ bool end_with(const char *a, const char c) {
 }
 
 typedef struct {
-  size_t name_offset;
-  size_t name_length;
+  size_t name_offset; // redundant
+  size_t name_length; // redundant
   size_t body_offset;
-  size_t body_length;
+  size_t body_length; // redundant
 } macro_def;
 
 typedef struct {
@@ -81,9 +81,9 @@ int main() {
     return 1;
   }
 
-  buffer_t macro_values = {0};
-  buffer_init(&macro_values, buffer_initial_size);
-  if (macro_values.data == NULL) {
+  buffer_t macro_bodies = {0};
+  buffer_init(&macro_bodies, buffer_initial_size);
+  if (macro_bodies.data == NULL) {
     return 1;
   }
 
@@ -100,8 +100,7 @@ int main() {
 
     if (!end_with(line_buf.data, '\n')) {
       // This line is the last line of the input.
-      fprintf(stdout, "%s", line_buf.data);
-      break;
+      buffer_put(&line_buf, "\n", 1);
     }
 
     if (begin_with(line_buf.data, "#+MACRO: ")) {
@@ -137,12 +136,15 @@ int main() {
 
       size_t body_offset = name_offset + name_length + 1; // 1 = strlen(" ")
       size_t body_length = line_length - body_offset;
-      buffer_put(&macro_values, line_buf.data + body_offset, body_length);
-      buffer_put(&macro_values, "", 1);
+      buffer_put(&macro_bodies, line_buf.data + body_offset, body_length);
+      buffer_put(&macro_bodies, "", 1);
 
-      macro_def m = {macro_names.used - 1 - name_length, name_length, macro_values.used - 1 - body_length, body_length};
+      macro_def m = {macro_names.used - 1 - name_length, name_length, macro_bodies.used - 1 - body_length, body_length};
       size_t macro_name_hash = fnv1_hash_64(line_buf.data + name_offset, name_length);
       hmput(macros, macro_name_hash, m);
+
+      fprintf(stdout, "%s", line_buf.data);
+      continue;
     }
 
     // macro expansion
@@ -202,52 +204,89 @@ int main() {
       }
       const char *macro_name = line_buf.data + macro_begin + bbb_offset;
       size_t name_length = i - macro_begin - bbb_offset;
+      size_t macro_name_hash = fnv1_hash_64(macro_name, name_length);
+      macro_def m = hmget(macros, macro_name_hash); // m may be a zero value.
+
+      if (m.name_length == 0) {
+        // the macro is undefined.
+        line_buf.used = macro_begin;
+        size_t line_rest_size = line_length - macro_end + 2; // 2 = strlen("\n\0")
+        buffer_put(&line_buf, line_buf.data + macro_end, line_rest_size);
+        continue;
+      }
+
       bool isConstant = (macro_end - macro_begin - 2 * bbb_offset) == name_length;
-
-      if (isConstant || true) {
-        size_t macro_name_hash = fnv1_hash_64(macro_name, name_length);
-        macro_def m = hmget(macros, macro_name_hash);
-        // m may be a zero value, which is not a problem in the following procedure.
-
+      if (isConstant) {
         // temp_buf = line[macro_end:]
         temp_buf.used = 0;
         buffer_put(&temp_buf, line_buf.data + macro_end, line_length - macro_end + 2); // 2 = strlen("\n\0")
 
         // line = line[:macro_begin] + macro_body + line[maro_end:]
         line_buf.used = macro_begin;
-        buffer_put(&line_buf, macro_values.data + m.body_offset, m.body_length);
+        buffer_put(&line_buf, macro_bodies.data + m.body_offset, m.body_length);
         buffer_copy(&line_buf, &temp_buf);
-      } else {
-        // $0
-        size_t i = 0;
-        while (i < line_length - 1) {
-          if (line_buf.data[i] == '$') {
-            i++;
-            if (line_buf.data[i] == '0') {
-              break;
-            }
+      } else if (!isConstant) {
+        // parse the arguments.
+        size_t argOffsets[11] = {0};
+        argOffsets[0] = macro_begin + bbb_offset + m.name_length + 1; // 1 = strlen("(")
+        argOffsets[1] = macro_begin + bbb_offset + m.name_length + 1; // 1 = strlen("(")
+        size_t currentIndex = 2;
+        for (size_t i = argOffsets[1]; i < macro_end - bbb_offset; i++) {
+          if (currentIndex == 10) {
+            break;
+          }
+          if (line_buf.data[i] == ',') {
+            argOffsets[currentIndex] = i + 1;
+            currentIndex++;
           }
         }
-        i++;
-        break;
+        argOffsets[currentIndex] = macro_end - bbb_offset;
+
+        // Expand the macro on temp_buf (we cannot modify line_buf because argOffsets depends on it).
+        temp_buf.used = 0;
+        size_t writeFrom = m.body_offset;
+        size_t writeUntil = m.body_offset;
+        while (true) {
+          if (macro_bodies.data[writeUntil] == '\0') {
+            buffer_put(&temp_buf, macro_bodies.data + writeFrom, writeUntil - writeFrom);
+            break;
+          }
+          if (macro_bodies.data[writeUntil] == '$') {
+            // If macro_bodies.data[writeUntil] != '\n', we can read macro_bodies.data[writeUntil + 1].
+            writeUntil++;
+            if ('0' <= macro_bodies.data[writeUntil] && macro_bodies.data[writeUntil] <= '9') {
+              size_t offset = 1;
+              buffer_put(&temp_buf, macro_bodies.data + writeFrom, writeUntil - writeFrom - offset);
+              size_t argIndex = (size_t)(macro_bodies.data[writeUntil]) - '0';
+              size_t writeSize = 0;
+              if (argIndex == 0) {
+                // The replacement is the whole text in the brackets.
+                writeSize = macro_end - macro_begin - m.name_length - 2 * bbb_offset - 2; // 2 = strlen("()")
+              } else {
+                writeSize = argOffsets[argIndex + 1] - argOffsets[argIndex] - 1; // 1 = strlen(",") or strlen(")")
+              }
+              buffer_put(&temp_buf, line_buf.data + argOffsets[argIndex], writeSize);
+              writeUntil++;
+              writeFrom = writeUntil;
+              continue;
+            }
+          }
+          writeUntil++;
+        }
+        size_t macro_expanded_size = temp_buf.used;
+        size_t line_rest_size = line_length - macro_end + 2; // 2 = strlen("\n\0")
+        buffer_put(&temp_buf, line_buf.data + macro_end, line_rest_size);
+
+        line_buf.used = macro_begin;
+        buffer_put(&line_buf, temp_buf.data, macro_expanded_size);
+        buffer_put(&line_buf, temp_buf.data + macro_expanded_size, line_rest_size);
       }
-
-      /* if (!isConstant) { */
-      /*   struct { */
-      /*     macro_def *macro; */
-      /*     char *text_begin; */
-      /*     char *text_nd; */
-      /*     char *args[10]; */
-      /*   } call; */
-
-      /*   fprintf(stderr, "hoge\n"); */
-      /* } */
     }
     fprintf(stdout, "%s", line_buf.data);
   }
 
   free(macro_names.data);
-  free(macro_values.data);
+  free(macro_bodies.data);
   free(line_buf.data);
   free(temp_buf.data);
   hmfree(macros);

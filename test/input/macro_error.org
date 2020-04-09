@@ -1,4 +1,6 @@
 #+MACRO: value 1
+#+MACRO: verbatim $0
+#+MACRO: verbatim2 $1 $2
 
 {{{hoge}}}
 
@@ -9,3 +11,11 @@
 {{{hoge{{{value}}}}}}
 
 {{{value}}}}}}
+
+{{{hoge(fugafuga}}}
+
+{{{value(1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1)}}}
+
+{{{verbatim(,,,,,)}}}
+
+{{{verbatim2(,,,,,)}}}
