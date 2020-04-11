@@ -100,7 +100,7 @@ int main() {
   time_t t = time(NULL);
   stbds_rand_seed((uint32_t)(t));
 
-  macro_hash_t *macros = NULL;
+  macro_hash_t *global_macros = NULL;
 
   while (true) {
     buffer_get_line(&line_buf, stdin);
@@ -156,7 +156,7 @@ int main() {
       uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
       macro_def m = {true, macro_bodies.used - body_length - 1}; // 1 = strlen("\0")
       uint64_t macro_name_hash = hash(name_begin, name_end);
-      hmput(macros, macro_name_hash, m);
+      hmput(global_macros, macro_name_hash, m);
 
       fprintf(stdout, "%s", line_begin);
       continue;
@@ -228,7 +228,7 @@ int main() {
 
       // lookup the definition of the macro.
       uint64_t name_hash = hash(name_begin, name_end);
-      macro_def m = hmget(macros, name_hash);
+      macro_def m = hmget(global_macros, name_hash);
 
       if (!m.is_valid) {
         // the macro is undefined.
@@ -321,6 +321,6 @@ int main() {
   free(macro_bodies.data);
   free(line_buf.data);
   free(temp_buf.data);
-  hmfree(macros);
+  hmfree(global_macros);
   return 0;
 }
