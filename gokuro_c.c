@@ -5,10 +5,16 @@
 
 #include "buffer.h"
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wsign-conversion"
+#pragma clang diagnostic ignored "-Wunused-parameter"
+#pragma clang diagnostic ignored "-Wcast-align"
+#pragma clang diagnostic ignored "-Wshadow"
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
+#pragma clang diagnostic pop
 
-bool begin_with(const char *a, const char *b) {
+static bool begin_with(const char *a, const char *b) {
   size_t i = 0;
   while (true) {
     if (a[i] == '\0' || b[i] == '\0') {
@@ -23,7 +29,7 @@ bool begin_with(const char *a, const char *b) {
   }
 }
 
-bool end_with(const char *a, const char c) {
+static bool end_with(const char *a, const char c) {
   size_t i = 0;
   bool just_read_c = false;
   while (true) {
@@ -49,14 +55,13 @@ typedef struct {
 } macro_hash_t;
 
 // https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
-size_t
-fnv1_hash_64(const char *byte, size_t length)
+static size_t fnv1_hash_64(const char *byte, size_t length)
 {
   size_t hash = 1099511628211u;
   for (size_t i = 0; i < length; i++)
     {
       hash *= 14695981039346656037u;
-      hash ^= byte[i];
+      hash ^= (size_t)(byte[i]);
     }
   return hash;
 }
@@ -88,7 +93,7 @@ int main() {
   }
 
   time_t t = time(NULL);
-  stbds_rand_seed(t);
+  stbds_rand_seed((size_t)(t));
 
   macro_hash_t *macros = NULL;
 
@@ -195,15 +200,15 @@ int main() {
         break;
       }
 
-      size_t i = macro_begin;
+      size_t name_sep = macro_begin;
       while (true) {
-        if (line_buf.data[i] == '(' || line_buf.data[i] == '}') {
+        if (line_buf.data[name_sep] == '(' || line_buf.data[name_sep] == '}') {
           break;
         }
-        i++;
+        name_sep++;
       }
       const char *macro_name = line_buf.data + macro_begin + bbb_offset;
-      size_t name_length = i - macro_begin - bbb_offset;
+      size_t name_length = name_sep - macro_begin - bbb_offset;
       size_t macro_name_hash = fnv1_hash_64(macro_name, name_length);
       macro_def m = hmget(macros, macro_name_hash); // m may be a zero value.
 
@@ -255,7 +260,7 @@ int main() {
             // If macro_bodies.data[writeUntil] != '\n', we can read macro_bodies.data[writeUntil + 1].
             writeUntil++;
             if ('0' <= macro_bodies.data[writeUntil] && macro_bodies.data[writeUntil] <= '9') {
-              size_t offset = 1;
+              size_t offset = 1; // 1 = strlen("$")
               buffer_put(&temp_buf, macro_bodies.data + writeFrom, writeUntil - writeFrom - offset);
               size_t argIndex = (size_t)(macro_bodies.data[writeUntil]) - '0';
               size_t writeSize = 0;

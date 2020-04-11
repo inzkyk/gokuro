@@ -7,13 +7,13 @@ typedef struct
   size_t used;
 } buffer_t;
 
-void buffer_init(buffer_t *buf, size_t capacity) {
+static void buffer_init(buffer_t *buf, size_t capacity) {
   buf->data = malloc(capacity);
   buf->capacity = capacity;
   buf->used = 0;
 }
 
-void buffer_reserve(buffer_t *buf, size_t new_capacity) {
+static void buffer_reserve(buffer_t *buf, size_t new_capacity) {
   if (buf->capacity >= new_capacity) {
     return;
   }
@@ -27,11 +27,11 @@ void buffer_reserve(buffer_t *buf, size_t new_capacity) {
   buf->capacity = new_capacity;
 }
 
-size_t max_size_t(size_t a, size_t b) {
+static size_t max_size_t(size_t a, size_t b) {
   return a > b ? a : b;
 }
 
-void buffer_put(buffer_t *buf, const char *data, size_t data_size) {
+static void buffer_put(buffer_t *buf, const char *data, size_t data_size) {
   if (data_size == 0) {
     return;
   }
@@ -48,7 +48,7 @@ void buffer_put(buffer_t *buf, const char *data, size_t data_size) {
   buf->used += data_size;
 }
 
-size_t char_index(const char *data, size_t data_size, char c) {
+static size_t char_index(const char *data, size_t data_size, char c) {
   for (size_t i = 0; i < data_size; i++) {
     if (data[i] == c) {
       return i;
@@ -57,12 +57,12 @@ size_t char_index(const char *data, size_t data_size, char c) {
   return data_size + 1;
 }
 
-void buffer_copy(buffer_t *buf1, buffer_t *buf2) {
+static void buffer_copy(buffer_t *buf1, buffer_t *buf2) {
   buffer_put(buf1, buf2->data, buf2->used);
 }
 
-void buffer_get_line(buffer_t *buf, FILE *f) {
-  char *result = fgets(buf->data, buf->capacity, f);
+static void buffer_get_line(buffer_t *buf, FILE *f) {
+  char *result = fgets(buf->data, (int)(buf->capacity), f);
   if (result == NULL) {
     buf->capacity = 0;
     return;
@@ -75,7 +75,7 @@ void buffer_get_line(buffer_t *buf, FILE *f) {
     size_t old_buf_size = buf->capacity;
     buffer_reserve(buf, 2 * buf->capacity);
     size_t offset = old_buf_size - 1; // minus one for a null character.
-    char *result = fgets(buf->data + offset, buf->capacity - offset, f);
+    result = fgets(buf->data + offset, (int)(buf->capacity - offset), f);
     if (result == NULL) {
       exit(1);
     }

@@ -1,4 +1,4 @@
-clang gokuro_c.c -o gokuro_c.exe -Wall -Werror
+clang gokuro_c.c -o gokuro_c.exe -Weverything -Werror
 
 @echo off
 
