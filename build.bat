@@ -6,7 +6,7 @@ if %errorlevel% NEQ 0 (exit /b)
 
 mkdir test\temp
 
-set files=empty.org hello.org no_newline.org long_line.org multi_line.org macro.org macro_error.org macro_args.org macro_dollar.org macro_escaped_comma.org
+set files=empty.org hello.org no_newline.org long_line.org multi_line.org macro.org macro_error.org macro_args.org macro_dollar.org macro_escaped_comma.org macro_local.org
 
 if "%~1" == "check" (
   @echo on

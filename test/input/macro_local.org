@@ -1,0 +1,14 @@
+#+MACRO: macro $1-{{{A}}}-{{{B}}}-{{{C}}}-$2
+
+{{{macro}}}
+
+{{{macro()}}}
+
+{{{macro(AAA,BBB)}}}
+
+#+A: A
+#+B: B
+#+C: C
+{{{macro(0,9)}}}
+
+{{{macro(AAA,BBB)}}}

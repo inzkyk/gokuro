@@ -22,6 +22,8 @@ typedef uint8_t bool;
 #define true 1
 #define false 0
 
+#define lengthof(x) ((sizeof((x))) / (sizeof((x)[0])))
+
 #include "buffer.h"
 
 static bool begin_with(const char *a, const char *b) {
@@ -85,15 +87,27 @@ int main() {
     return 1;
   }
 
-  buffer_t macro_names = {0};
-  buffer_init(&macro_names, buffer_initial_size);
-  if (macro_names.data == NULL) {
+  buffer_t global_macro_names = {0};
+  buffer_init(&global_macro_names, buffer_initial_size);
+  if (global_macro_names.data == NULL) {
     return 1;
   }
 
-  buffer_t macro_bodies = {0};
-  buffer_init(&macro_bodies, buffer_initial_size);
-  if (macro_bodies.data == NULL) {
+  buffer_t global_macro_bodies = {0};
+  buffer_init(&global_macro_bodies, buffer_initial_size);
+  if (global_macro_bodies.data == NULL) {
+    return 1;
+  }
+
+  buffer_t local_macro_names = {0};
+  buffer_init(&local_macro_names, buffer_initial_size);
+  if (local_macro_names.data == NULL) {
+    return 1;
+  }
+
+  buffer_t local_macro_bodies = {0};
+  buffer_init(&local_macro_bodies, buffer_initial_size);
+  if (local_macro_bodies.data == NULL) {
     return 1;
   }
 
@@ -101,6 +115,7 @@ int main() {
   stbds_rand_seed((uint32_t)(t));
 
   macro_hash_t *global_macros = NULL;
+  macro_hash_t *local_macros = NULL;
 
   while (true) {
     buffer_get_line(&line_buf, stdin);
@@ -117,8 +132,9 @@ int main() {
     char *line_begin = line_buf.data;
     char *line_end = line_buf.data + line_buf.used - 2; // 2 = strlen("\n\0")
 
+    // global macro definition.
     if (begin_with(line_begin, "#+MACRO: ")) {
-      // This line may define a macro.
+      // This line may define a global macro.
       const uint32_t name_offset = 9; // 9 = strlen("#+MACRO: ")
 
       if (*(line_begin + name_offset) == '\n') {
@@ -135,7 +151,7 @@ int main() {
             break;
           }
           if (*c == '\n') {
-            // This line does not define a macro.
+            // This line does not define a global macro.
             break;
           }
           c++;
@@ -147,19 +163,53 @@ int main() {
         }
       }
 
-      buffer_put_until(&macro_names, name_begin, name_end);
-      buffer_put(&macro_names, "", 1);
+      buffer_put_until(&global_macro_names, name_begin, name_end);
+      buffer_put(&global_macro_names, "", 1);
 
-      buffer_put_until(&macro_bodies, name_end + 1, line_end);
-      buffer_put(&macro_bodies, "", 1);
+      buffer_put_until(&global_macro_bodies, name_end + 1, line_end);
+      buffer_put(&global_macro_bodies, "", 1);
 
       uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
-      macro_def m = {true, macro_bodies.used - body_length - 1}; // 1 = strlen("\0")
+      macro_def m = {true, global_macro_bodies.used - body_length - 1}; // 1 = strlen("\0")
       uint64_t macro_name_hash = hash(name_begin, name_end);
       hmput(global_macros, macro_name_hash, m);
 
       fprintf(stdout, "%s", line_begin);
       continue;
+    }
+
+    // local macro definition.
+    bool local_macro_defined = false;
+    if (begin_with(line_begin, "#+")) {
+      char *name_begin = line_begin + 2; // 2 = strlen("#+")
+      char *name_end = NULL;
+      {
+        char *c = name_begin;
+        while(*c != '\n') {
+          if (*c == ':') {
+            name_end = c;
+            break;
+          }
+          c++;
+        }
+        if (name_end == NULL) {
+          // this line does not define a local macro.
+          fprintf(stdout, "%s", line_begin);
+          continue;
+        }
+      }
+
+      local_macro_defined = true;
+      buffer_put_until(&local_macro_names, name_begin, name_end);
+      buffer_put(&local_macro_names, "", 1);
+
+      buffer_put_until(&local_macro_bodies, name_end + 2, line_end); // 2 = strlen(": ")
+      buffer_put(&local_macro_bodies, "", 1);
+
+      uint32_t body_length = (uint32_t)(line_end - name_end) - 2; // 1 = strlen(": ")
+      macro_def m = {true, local_macro_bodies.used - body_length - 1}; // 1 = strlen("\0")
+      uint64_t macro_name_hash = hash(name_begin, name_end);
+      hmput(local_macros, macro_name_hash, m);
     }
 
     // macro expansion
@@ -190,6 +240,9 @@ int main() {
             if (*c == '}') {
               c--;
               if (*c == '}') {
+                while (*(c - 1) == '}') {
+                  c--;
+                }
                 macro_end = c + 3;
                 c--;
                 continue;
@@ -228,7 +281,12 @@ int main() {
 
       // lookup the definition of the macro.
       uint64_t name_hash = hash(name_begin, name_end);
-      macro_def m = hmget(global_macros, name_hash);
+      char* macro_body_data = local_macro_bodies.data;
+      macro_def m = hmget(local_macros, name_hash);
+      if (!m.is_valid) {
+        m = hmget(global_macros, name_hash);
+        macro_body_data = global_macro_bodies.data;
+      }
 
       if (!m.is_valid) {
         // the macro is undefined.
@@ -244,16 +302,17 @@ int main() {
 
         // line = line[:macro_begin] + macro_body + line[maro_end:]
         buffer_shrink_to(&line_buf, macro_begin);
-        buffer_put_string(&line_buf, macro_bodies.data + m.body_offset);
+        buffer_put_string(&line_buf, macro_body_data + m.body_offset);
         buffer_copy(&line_buf, &temp_buf);
       } else {
+        // expand the macro on temp_buf (we cannot modify line_buf because args depends on it).
+
         // parse the arguments.
-        char *args[11] = {0};
+        char *args[9] = {0}; // 10 = max bumber of the positions of arguments  ($1...$9)
         args[0] = name_end + 1; // 1 = strlen("(")
-        args[1] = name_end + 1; // 1 = strlen("(")
-        uint32_t currentIndex = 2;
-        for (char *c = args[1]; c < macro_end; c++) {
-          if (currentIndex == 10) {
+        uint32_t currentIndex = 1;
+        for (char *c = args[0]; c < macro_end; c++) {
+          if (currentIndex == lengthof(args)) {
             break;
           }
           if (*c == ',') {
@@ -273,13 +332,11 @@ int main() {
             continue;
           }
         }
-        args[currentIndex] = macro_end - bbb_offset;
 
-        // Expand the macro on temp_buf (we cannot modify line_buf because args depends on it).
         buffer_clear(&temp_buf);
         buffer_put_until(&temp_buf, line_begin, macro_begin);
-        char *writeFrom = macro_bodies.data + m.body_offset;
-        char *c = macro_bodies.data + m.body_offset;
+        char *writeFrom = macro_body_data + m.body_offset;
+        char *c = macro_body_data + m.body_offset;
         while (true) {
           if (*c == '\0') {
             buffer_put_until(&temp_buf, writeFrom, c);
@@ -292,14 +349,16 @@ int main() {
               uint32_t offset = 1; // 1 = strlen("$")
               buffer_put_until(&temp_buf, writeFrom, c - offset);
               uint32_t argIndex = (uint32_t)(*c - '0');
-              char *writeUntil;
               if (argIndex == 0) {
                 // The replacement is the whole text in the brackets.
-                writeUntil = macro_end - bbb_offset - 1; // 1 = strlen(")")
-              } else {
-                writeUntil = args[argIndex + 1] - 1; // 1 = strlen(",") or strlen(")")
+                buffer_put_until(&temp_buf, args[0], macro_end - bbb_offset - 1); // 1 = strlen(")")
+              } else if (args[argIndex - 1] != NULL) {
+                 if ((argIndex == 9) || args[argIndex] == NULL) {
+                  buffer_put_until(&temp_buf, args[argIndex - 1], macro_end - bbb_offset - 1);
+                } else {
+                  buffer_put_until(&temp_buf, args[argIndex - 1], args[argIndex] - 1); // 1 = strlen(",")
+                }
               }
-              buffer_put_until(&temp_buf, args[argIndex], writeUntil);
               c++;
               writeFrom = c;
               continue;
@@ -310,15 +369,21 @@ int main() {
 
         // copy the expanded line to line_buf.
         buffer_put_until(&temp_buf, macro_end, line_end + 2); // 2 = strlen("\n\0")
-        line_buf.used = 0;
+        buffer_clear(&line_buf);
         buffer_copy(&line_buf, &temp_buf);
       }
     }
     fprintf(stdout, "%s", line_begin);
+    if (!local_macro_defined) {
+      hmfree(local_macros);
+      local_macros = NULL;
+    }
   }
 
-  free(macro_names.data);
-  free(macro_bodies.data);
+  free(global_macro_names.data);
+  free(global_macro_bodies.data);
+  free(local_macro_names.data);
+  free(local_macro_bodies.data);
   free(line_buf.data);
   free(temp_buf.data);
   hmfree(global_macros);
