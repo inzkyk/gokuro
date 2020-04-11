@@ -259,6 +259,18 @@ int main() {
           if (*c == ',') {
             args[currentIndex] = c + 1; // 1 = strlen(",")
             currentIndex++;
+            continue;
+          }
+          if ((*c == '\\') && (*(c + 1) == ',')) {
+            // escaped comma.
+            // this branch is barely executed, so the code is very dirty.
+            for (char *d = c; d < line_end + 1; d++) { // 1 = strlen("\n\0") - strlen("\\")
+              *d = *(d + 1);
+            }
+            macro_end--;
+            line_end--;
+            c++;
+            continue;
           }
         }
         args[currentIndex] = macro_end - bbb_offset;
