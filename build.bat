@@ -31,5 +31,10 @@ if "%~1" == "diff" (
   goto last
 )
 
+if "%~1" == "release" (
+  clang gokuro_c.c -o gokuro_c.exe -Weverything -Werror -O3
+  goto last
+)
+
 :last
 rd test\temp /s /q
