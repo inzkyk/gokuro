@@ -322,12 +322,6 @@ int main() {
           }
           if ((*c == '\\') && (*(c + 1) == ',')) {
             // escaped comma.
-            // this branch is barely executed, so the code is very dirty.
-            for (char *d = c; d < line_end + 1; d++) { // 1 = strlen("\n\0") - strlen("\\")
-              *d = *(d + 1);
-            }
-            macro_end--;
-            line_end--;
             c++;
             continue;
           }
@@ -344,22 +338,24 @@ int main() {
           }
           if (*c == '$') {
             // If *c != '\n', we can read *(c + 1).
-            c++;
-            if ('0' <= *c && *c <= '9') {
-              uint32_t offset = 1; // 1 = strlen("$")
-              buffer_put_until(&temp_buf, writeFrom, c - offset);
-              uint32_t argIndex = (uint32_t)(*c - '0');
+            if ('0' <= *(c + 1) && *(c + 1) <= '9') {
+              buffer_put_until(&temp_buf, writeFrom, c);
+              uint32_t argIndex = (uint32_t)(*(c + 1) - '0');
               if (argIndex == 0) {
                 // The replacement is the whole text in the brackets.
-                buffer_put_until(&temp_buf, args[0], macro_end - bbb_offset - 1); // 1 = strlen(")")
+                char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
+                buffer_put_until(&temp_buf, args[0], until);
               } else if (args[argIndex - 1] != NULL) {
                  if ((argIndex == 9) || args[argIndex] == NULL) {
-                  buffer_put_until(&temp_buf, args[argIndex - 1], macro_end - bbb_offset - 1);
+                   // last argument
+                   char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
+                   buffer_put_until_escaping_comma(&temp_buf, args[argIndex - 1], until);
                 } else {
-                  buffer_put_until(&temp_buf, args[argIndex - 1], args[argIndex] - 1); // 1 = strlen(",")
+                   char *until = args[argIndex] - 1; // 1 = strlen(",")
+                   buffer_put_until_escaping_comma(&temp_buf, args[argIndex - 1], until);
                 }
               }
-              c++;
+              c += 2;
               writeFrom = c;
               continue;
             }

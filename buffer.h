@@ -54,8 +54,40 @@ static void buffer_put_until(buffer_t *buf, const char *data, const char *data_e
     return;
   }
 
-  uint32_t size = (uint32_t)(data_end - data);
-  buffer_put(buf, data, size);
+  uint32_t data_size = (uint32_t)(data_end - data);
+  if (buf->used + data_size > buf->capacity) {
+    uint32_t new_capacity = max_uint32_t(2 * buf->capacity, buf->used + data_size);
+    buffer_reserve(buf, new_capacity);
+  }
+
+  for (const char *c = data; c < data_end; c++) {
+    buf->data[buf->used] = *c;
+    buf->used++;
+  }
+}
+
+static void buffer_put_until_escaping_comma(buffer_t *buf, const char *data, const char *data_end) {
+  bool valid = data <= data_end;
+  if (!valid) {
+    return;
+  }
+
+  uint32_t data_size = (uint32_t)(data_end - data);
+  if (buf->used + data_size > buf->capacity) {
+    uint32_t new_capacity = max_uint32_t(2 * buf->capacity, buf->used + data_size);
+    buffer_reserve(buf, new_capacity);
+  }
+
+  for (const char *c = data; c < data_end; c++) {
+    if ((*c == '\\') && (*(c + 1) == ',')) {
+      buf->data[buf->used] = ',';
+      buf->used++;
+      c++;
+    } else {
+      buf->data[buf->used] = *c;
+      buf->used++;
+    }
+  }
 }
 
 static void buffer_put_string(buffer_t *buf, const char *data) {
