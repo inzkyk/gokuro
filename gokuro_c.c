@@ -3,6 +3,11 @@
 #include <stdint.h>
 #include <time.h>
 
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#endif
+
 #if __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wsign-conversion"
@@ -74,6 +79,10 @@ static uint64_t hash(void *data_begin, void *data_end)
 }
 
 int main() {
+#ifdef _WIN32
+  _setmode(_fileno(stdout), _O_BINARY);
+#endif
+
   const uint32_t buffer_initial_size = 4;
   buffer_t line_buf = {0};
   buffer_init(&line_buf, buffer_initial_size);
