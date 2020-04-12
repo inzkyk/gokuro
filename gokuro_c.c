@@ -46,25 +46,13 @@ static bool begin_with(const char *a, const char *b) {
   }
 }
 
-static bool end_with(const char *a, const char c) {
-  uint32_t i = 0;
-  bool just_read_c = false;
-  while (true) {
-    if (a[i] == '\0') {
-      return just_read_c;
-    }
-    just_read_c = (a[i] == c);
-    i++;
-  }
-}
-
 typedef struct {
   uint32_t is_valid;
   uint32_t body_offset;
 } macro_def;
 
 typedef struct {
-  uint64_t key;
+  uint64_t key; // 64 bit due to alignment issue.
   macro_def value;
 } macro_hash_t;
 
@@ -78,46 +66,63 @@ static uint64_t hash(void *data_begin, void *data_end)
   return hash;
 }
 
-int main() {
+static void gokuro(FILE *in, FILE *out) {
 #ifdef _WIN32
-  _setmode(_fileno(stdout), _O_BINARY);
+  // output "\n" instead of "\r\n".
+  int oldmode = _setmode(_fileno(out), _O_BINARY);
+  if (oldmode == -1) {
+    fprintf(stderr, "_setmode() failed.\n");
+    return;
+  }
 #endif
 
-  const uint32_t buffer_initial_size = 4;
+  int result = setvbuf(out, NULL, _IOFBF, 1024 * 4);
+  if (result != 0) {
+    fprintf(stderr, "setvbuf() failed.\n");
+    return;
+  }
+
+  result = setvbuf(in, NULL, _IOFBF, 1024 * 4);
+  if (result != 0) {
+    fprintf(stderr, "setvbuf() failed.\n");
+    return;
+  }
+
+  const uint32_t buffer_initial_size = 1024 * 4;
+
+  buffer_t input_buf = {0};
+  buffer_init(&input_buf, buffer_initial_size);
+  if (input_buf.data == NULL) {
+    fprintf(stderr, "memory allocation failed.\n");
+    return;
+  }
+
   buffer_t line_buf = {0};
   buffer_init(&line_buf, buffer_initial_size);
   if (line_buf.data == NULL) {
-    return 1;
+    fprintf(stderr, "memory allocation failed.\n");
+    return;
   }
 
   buffer_t temp_buf = {0};
   buffer_init(&temp_buf, buffer_initial_size);
   if (temp_buf.data == NULL) {
-    return 1;
-  }
-
-  buffer_t global_macro_names = {0};
-  buffer_init(&global_macro_names, buffer_initial_size);
-  if (global_macro_names.data == NULL) {
-    return 1;
+    fprintf(stderr, "memory allocation failed.\n");
+    return;
   }
 
   buffer_t global_macro_bodies = {0};
   buffer_init(&global_macro_bodies, buffer_initial_size);
   if (global_macro_bodies.data == NULL) {
-    return 1;
-  }
-
-  buffer_t local_macro_names = {0};
-  buffer_init(&local_macro_names, buffer_initial_size);
-  if (local_macro_names.data == NULL) {
-    return 1;
+    fprintf(stderr, "memory allocation failed.\n");
+    return;
   }
 
   buffer_t local_macro_bodies = {0};
   buffer_init(&local_macro_bodies, buffer_initial_size);
   if (local_macro_bodies.data == NULL) {
-    return 1;
+    fprintf(stderr, "memory allocation failed.\n");
+    return;
   }
 
   time_t t = time(NULL);
@@ -126,16 +131,38 @@ int main() {
   macro_hash_t *global_macros = NULL;
   macro_hash_t *local_macros = NULL;
 
-  while (true) {
-    buffer_get_line(&line_buf, stdin);
-    if (line_buf.capacity == 0) {
-      break;
-    }
+  buffer_read_all(&input_buf, in);
+  if (input_buf.used == 0) {
+    // stupid shorcut...
+    return;
+  }
+  if (*(input_buf.data + input_buf.used - 1) != '\n') {
+    // normalize the input.
+    buffer_put(&input_buf, "\n", 1);
+  }
+  buffer_put(&input_buf, "\0", 1);
 
-    if (!end_with(line_buf.data, '\n')) {
-      // This line is the last line of the input.
-      line_buf.data[line_buf.used - 1] = '\n'; // '\0' -> '\n'
-      buffer_put(&line_buf, "", 1);
+  char *input_index = input_buf.data;
+  while (true) {
+    // read a line to line_buf.
+    {
+      char *c = input_index;
+      if (*c == '\0') {
+        break;
+      }
+      while (true) {
+        if (*c == '\n') {
+          break;
+        }
+        c++;
+      }
+
+      c++;
+      buffer_clear(&line_buf);
+      buffer_put_until(&line_buf, input_index, c);
+      buffer_put(&line_buf, "\0", 1);
+
+      input_index = c;
     }
 
     char *line_begin = line_buf.data;
@@ -147,6 +174,7 @@ int main() {
       const uint32_t name_offset = 9; // 9 = strlen("#+MACRO: ")
 
       if (*(line_begin + name_offset) == '\n') {
+        // This line does not define a global macro.
         break;
       }
 
@@ -167,13 +195,10 @@ int main() {
         }
 
         if (name_end == NULL) {
-          fprintf(stdout, "%s", line_begin);
+          fputs(line_begin, out);
           continue;
         }
       }
-
-      buffer_put_until(&global_macro_names, name_begin, name_end);
-      buffer_put(&global_macro_names, "", 1);
 
       buffer_put_until(&global_macro_bodies, name_end + 1, line_end);
       buffer_put(&global_macro_bodies, "", 1);
@@ -183,7 +208,7 @@ int main() {
       uint64_t macro_name_hash = hash(name_begin, name_end);
       hmput(global_macros, macro_name_hash, m);
 
-      fprintf(stdout, "%s", line_begin);
+      fputs(line_begin, out);
       continue;
     }
 
@@ -203,15 +228,12 @@ int main() {
         }
         if (name_end == NULL) {
           // this line does not define a local macro.
-          fprintf(stdout, "%s", line_begin);
+          fputs(line_begin, out);
           continue;
         }
       }
 
       local_macro_defined = true;
-      buffer_put_until(&local_macro_names, name_begin, name_end);
-      buffer_put(&local_macro_names, "", 1);
-
       buffer_put_until(&local_macro_bodies, name_end + 2, line_end); // 2 = strlen(": ")
       buffer_put(&local_macro_bodies, "", 1);
 
@@ -378,19 +400,21 @@ int main() {
         buffer_copy(&line_buf, &temp_buf);
       }
     }
-    fprintf(stdout, "%s", line_begin);
+    fputs(line_begin, out);
     if (!local_macro_defined) {
       hmfree(local_macros);
       local_macros = NULL;
     }
   }
 
-  free(global_macro_names.data);
   free(global_macro_bodies.data);
-  free(local_macro_names.data);
   free(local_macro_bodies.data);
   free(line_buf.data);
   free(temp_buf.data);
   hmfree(global_macros);
-  return 0;
+  fflush(out);
+}
+
+int main() {
+  gokuro(stdin, stdout);
 }

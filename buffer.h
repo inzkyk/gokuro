@@ -113,41 +113,22 @@ static void buffer_clear(buffer_t *buf) {
   buf->used = 0;
 }
 
-static uint32_t char_index(const char *data, uint32_t data_size, char c) {
-  for (uint32_t i = 0; i < data_size; i++) {
-    if (data[i] == c) {
-      return i;
-    }
-  }
-  return data_size + 1;
-}
-
 static void buffer_copy(buffer_t *buf1, buffer_t *buf2) {
   buffer_put(buf1, buf2->data, buf2->used);
 }
 
-static void buffer_get_line(buffer_t *buf, FILE *f) {
-  char *result = fgets(buf->data, (int)(buf->capacity), f);
-  if (result == NULL) {
-    buf->capacity = 0;
-    return;
-  }
-  buf->data = result;
+static void buffer_read_all(buffer_t *buf, FILE *f) {
+  uint32_t read_size = 1024 * 4;
 
-  uint32_t index_of_null = char_index(buf->data, buf->capacity, '\0');
-  bool buffer_too_small = (index_of_null == buf->capacity - 1) && (buf->data[index_of_null - 1] != '\n');
-  while (buffer_too_small) {
-    uint32_t old_buf_size = buf->capacity;
-    buffer_reserve(buf, 2 * buf->capacity);
-    uint32_t offset = old_buf_size - 1; // minus one for a null character.
-    result = fgets(buf->data + offset, (int)(buf->capacity - offset), f);
-    if (result == NULL) {
-      exit(1);
+  while (true) {
+    buffer_reserve(buf, buf->used + read_size);
+
+    size_t size_just_read = fread(buf->data + buf->used, 1, read_size, f);
+    buf->used += size_just_read;
+    bool input_consumed = (size_just_read < read_size);
+    if (input_consumed) {
+      break;
     }
-
-    index_of_null += char_index(buf->data + offset, buf->capacity - offset, '\0');
-    buffer_too_small = (index_of_null == buf->capacity - 1) && (buf->data[buf->capacity - 1] != '\n');
+    read_size *= 2;
   }
-
-  buf->used = index_of_null + 1;
 }
