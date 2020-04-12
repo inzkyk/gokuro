@@ -124,7 +124,7 @@ static void buffer_read_all(buffer_t *buf, FILE *f) {
     buffer_reserve(buf, buf->used + read_size);
 
     size_t size_just_read = fread(buf->data + buf->used, 1, read_size, f);
-    buf->used += size_just_read;
+    buf->used += (uint32_t)(size_just_read);
     bool input_consumed = (size_just_read < read_size);
     if (input_consumed) {
       break;

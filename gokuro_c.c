@@ -31,10 +31,11 @@ typedef uint8_t bool;
 
 #include "buffer.h"
 
+// a =? b + X
 static bool begin_with(const char *a, const char *b) {
   uint32_t i = 0;
   while (true) {
-    if (a[i] == '\0' || b[i] == '\0') {
+    if (b[i] == '\0') {
       return true;
     }
 
@@ -133,7 +134,7 @@ static void gokuro(FILE *in, FILE *out) {
 
   buffer_read_all(&input_buf, in);
   if (input_buf.used == 0) {
-    // stupid shorcut...
+    // input is empty.
     return;
   }
   if (*(input_buf.data + input_buf.used - 1) != '\n') {
@@ -144,7 +145,7 @@ static void gokuro(FILE *in, FILE *out) {
 
   char *input_index = input_buf.data;
   while (true) {
-    // read a line to line_buf.
+    // read next line to line_buf.
     {
       char *c = input_index;
       if (*c == '\0') {
@@ -157,23 +158,21 @@ static void gokuro(FILE *in, FILE *out) {
         c++;
       }
 
-      c++;
       buffer_clear(&line_buf);
       buffer_put_until(&line_buf, input_index, c);
       buffer_put(&line_buf, "\0", 1);
-
-      input_index = c;
+      input_index = c + 1;
     }
 
     char *line_begin = line_buf.data;
-    char *line_end = line_buf.data + line_buf.used - 2; // 2 = strlen("\n\0")
+    char *line_end = line_buf.data + line_buf.used - 1; // 1 = strlen("\0")
 
     // global macro definition.
     if (begin_with(line_begin, "#+MACRO: ")) {
       // This line may define a global macro.
       const uint32_t name_offset = 9; // 9 = strlen("#+MACRO: ")
 
-      if (*(line_begin + name_offset) == '\n') {
+      if (*(line_begin + name_offset) == '\0') {
         // This line does not define a global macro.
         break;
       }
@@ -187,7 +186,7 @@ static void gokuro(FILE *in, FILE *out) {
             name_end = c;
             break;
           }
-          if (*c == '\n') {
+          if (*c == '\0') {
             // This line does not define a global macro.
             break;
           }
@@ -196,11 +195,12 @@ static void gokuro(FILE *in, FILE *out) {
 
         if (name_end == NULL) {
           fputs(line_begin, out);
+          fputs("\n", out);
           continue;
         }
       }
 
-      buffer_put_until(&global_macro_bodies, name_end + 1, line_end);
+      buffer_put_string(&global_macro_bodies, name_end + 1);
       buffer_put(&global_macro_bodies, "", 1);
 
       uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
@@ -209,6 +209,7 @@ static void gokuro(FILE *in, FILE *out) {
       hmput(global_macros, macro_name_hash, m);
 
       fputs(line_begin, out);
+      fputs("\n", out);
       continue;
     }
 
@@ -219,7 +220,7 @@ static void gokuro(FILE *in, FILE *out) {
       char *name_end = NULL;
       {
         char *c = name_begin;
-        while(*c != '\n') {
+        while(*c != '\0') {
           if (*c == ':') {
             name_end = c;
             break;
@@ -229,6 +230,7 @@ static void gokuro(FILE *in, FILE *out) {
         if (name_end == NULL) {
           // this line does not define a local macro.
           fputs(line_begin, out);
+          fputs("\n", out);
           continue;
         }
       }
@@ -247,12 +249,12 @@ static void gokuro(FILE *in, FILE *out) {
     while (true) {
       const uint32_t bbb_offset = 3; // 3 = strlen("{{{") or strlen("}}}")
       line_begin = line_buf.data;
-      line_end = line_buf.data + line_buf.used - 2; // 2 = strlen("\n\0")
+      line_end = line_buf.data + line_buf.used - 1; // 1 = strlen("\0")
 
       char *macro_begin = NULL;
       char *macro_end = NULL;
       { // find the last macro call.
-        char *c = line_end; // *c == "\n"
+        char *c = line_end; // *c == "\0"
         while (true) {
           if (c < line_begin) {
             break;
@@ -322,14 +324,14 @@ static void gokuro(FILE *in, FILE *out) {
       if (!m.is_valid) {
         // the macro is undefined.
         buffer_shrink_to(&line_buf, macro_begin);
-        buffer_put_until(&line_buf, macro_end, line_end + 2); // 2 = strlen("\n\0")
+        buffer_put_until(&line_buf, macro_end, line_end + 1); // 1 = strlen("\0")
         continue;
       }
 
       if (isConstant) {
         // temp_buf = line[macro_end:]
         buffer_clear(&temp_buf);
-        buffer_put_until(&temp_buf, macro_end, line_end + 2); // 2 = strlen("\n\0")
+        buffer_put_until(&temp_buf, macro_end, line_end + 1); // 1 = strlen("\0")
 
         // line = line[:macro_begin] + macro_body + line[maro_end:]
         buffer_shrink_to(&line_buf, macro_begin);
@@ -339,7 +341,7 @@ static void gokuro(FILE *in, FILE *out) {
         // expand the macro on temp_buf (we cannot modify line_buf because args depends on it).
 
         // parse the arguments.
-        char *args[9] = {0}; // 10 = max bumber of the positions of arguments  ($1...$9)
+        char *args[9] = {0}; // 9 = max bumber of the positions of arguments  ($1...$9)
         args[0] = name_end + 1; // 1 = strlen("(")
         uint32_t currentIndex = 1;
         for (char *c = args[0]; c < macro_end; c++) {
@@ -368,7 +370,7 @@ static void gokuro(FILE *in, FILE *out) {
             break;
           }
           if (*c == '$') {
-            // If *c != '\n', we can read *(c + 1).
+            // If *c != '\0', we can read *(c + 1).
             if ('0' <= *(c + 1) && *(c + 1) <= '9') {
               buffer_put_until(&temp_buf, writeFrom, c);
               uint32_t argIndex = (uint32_t)(*(c + 1) - '0');
@@ -395,12 +397,13 @@ static void gokuro(FILE *in, FILE *out) {
         }
 
         // copy the expanded line to line_buf.
-        buffer_put_until(&temp_buf, macro_end, line_end + 2); // 2 = strlen("\n\0")
+        buffer_put_until(&temp_buf, macro_end, line_end + 1); // 1 = strlen("\0")
         buffer_clear(&line_buf);
         buffer_copy(&line_buf, &temp_buf);
       }
     }
     fputs(line_begin, out);
+    fputs("\n", out);
     if (!local_macro_defined) {
       hmfree(local_macros);
       local_macros = NULL;
