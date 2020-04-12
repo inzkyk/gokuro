@@ -23,9 +23,11 @@
 #pragma clang diagnostic pop
 #endif
 
+#ifndef __cplusplus
 typedef uint8_t bool;
 #define true 1
 #define false 0
+#endif
 
 #define lengthof(x) ((sizeof((x))) / (sizeof((x)[0])))
 
@@ -60,7 +62,7 @@ typedef struct {
 static uint64_t hash(void *data_begin, void *data_end)
 {
   uint64_t hash = 1099511628211u;
-  for (unsigned char *c = data_begin; c < (unsigned char *)data_end; c++)
+  for (unsigned char *c = (unsigned char *)(data_begin); c < (unsigned char *)data_end; c++)
     {
       hash = hash * 33 + *c;
     }

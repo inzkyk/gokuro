@@ -8,7 +8,7 @@ typedef struct
 } buffer_t;
 
 static void buffer_init(buffer_t *buf, uint32_t capacity) {
-  buf->data = malloc(capacity);
+  buf->data = (char *)(malloc(capacity));
   buf->capacity = capacity;
   buf->used = 0;
 }
@@ -18,7 +18,7 @@ static void buffer_reserve(buffer_t *buf, uint32_t new_capacity) {
     return;
   }
 
-  char *tmp = realloc(buf->data, new_capacity);
+  char *tmp = (char *)(realloc(buf->data, new_capacity));
   if (tmp == NULL) {
     exit(1);
   }
