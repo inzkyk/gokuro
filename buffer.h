@@ -13,13 +13,22 @@ static void buffer_init(buffer_t *buf, uint32_t capacity) {
   buf->used = 0;
 }
 
-static void buffer_reserve(buffer_t *buf, uint32_t new_capacity) {
-  if (buf->capacity >= new_capacity) {
+static void buffer_free(buffer_t *buf) {
+  free(buf->data);
+  buf->data = NULL;
+  buf->used = 0;
+  buf->capacity = 0;
+}
+
+static void buffer_ensure_capacity(buffer_t *buf, uint32_t capacity) {
+  if (buf->capacity >= capacity) {
     return;
   }
 
+  uint32_t new_capacity = 2 * capacity;
   char *tmp = (char *)(realloc(buf->data, new_capacity));
   if (tmp == NULL) {
+    fprintf(stderr, "memory allocation failed");
     exit(1);
   }
 
@@ -27,19 +36,12 @@ static void buffer_reserve(buffer_t *buf, uint32_t new_capacity) {
   buf->capacity = new_capacity;
 }
 
-static uint32_t max_uint32_t(uint32_t a, uint32_t b) {
-  return a > b ? a : b;
-}
-
 static void buffer_put(buffer_t *buf, const char *data, uint32_t data_size) {
   if (data_size == 0) {
     return;
   }
 
-  if (buf->used + data_size > buf->capacity) {
-    uint32_t new_capacity = max_uint32_t(2 * buf->capacity, buf->used + data_size);
-    buffer_reserve(buf, new_capacity);
-  }
+  buffer_ensure_capacity(buf, buf->used + data_size);
 
   for (uint32_t i = 0; i < data_size; i++) {
     buf->data[buf->used + i] = data[i];
@@ -48,17 +50,20 @@ static void buffer_put(buffer_t *buf, const char *data, uint32_t data_size) {
   buf->used += data_size;
 }
 
-static void buffer_put_until(buffer_t *buf, const char *data, const char *data_end) {
+static void buffer_put_char(buffer_t *buf, char c) {
+  buffer_ensure_capacity(buf, buf->used + 1);
+  buf->data[buf->used] = c;
+  buf->used++;
+}
+
+static void buffer_put_until_ptr(buffer_t *buf, const char *data, const char *data_end) {
   bool valid = data <= data_end;
   if (!valid) {
     return;
   }
 
   uint32_t data_size = (uint32_t)(data_end - data);
-  if (buf->used + data_size > buf->capacity) {
-    uint32_t new_capacity = max_uint32_t(2 * buf->capacity, buf->used + data_size);
-    buffer_reserve(buf, new_capacity);
-  }
+  buffer_ensure_capacity(buf, buf->used + data_size);
 
   for (const char *c = data; c < data_end; c++) {
     buf->data[buf->used] = *c;
@@ -66,17 +71,14 @@ static void buffer_put_until(buffer_t *buf, const char *data, const char *data_e
   }
 }
 
-static void buffer_put_until_escaping_comma(buffer_t *buf, const char *data, const char *data_end) {
+static void buffer_put_until_ptr_escaping_comma(buffer_t *buf, const char *data, const char *data_end) {
   bool valid = data <= data_end;
   if (!valid) {
     return;
   }
 
-  uint32_t data_size = (uint32_t)(data_end - data);
-  if (buf->used + data_size > buf->capacity) {
-    uint32_t new_capacity = max_uint32_t(2 * buf->capacity, buf->used + data_size);
-    buffer_reserve(buf, new_capacity);
-  }
+  uint32_t max_data_size = (uint32_t)(data_end - data);
+  buffer_ensure_capacity(buf, buf->used + max_data_size);
 
   for (const char *c = data; c < data_end; c++) {
     if ((*c == '\\') && (*(c + 1) == ',')) {
@@ -90,10 +92,10 @@ static void buffer_put_until_escaping_comma(buffer_t *buf, const char *data, con
   }
 }
 
-static void buffer_put_string(buffer_t *buf, const char *data) {
-  for (uint32_t i = 0; data[i] != '\0'; i++) {
+static void buffer_put_until_char(buffer_t *buf, const char *data, char c) {
+  for (uint32_t i = 0; data[i] != c; i++) {
     if (buf->used == buf->capacity) {
-      buffer_reserve(buf, 2 * buf->capacity);
+      buffer_ensure_capacity(buf, 2 * buf->capacity);
     }
     buf->data[buf->used] = data[i];
     buf->used++;
@@ -121,7 +123,7 @@ static void buffer_read_all(buffer_t *buf, FILE *f) {
   uint32_t read_size = 1024 * 4;
 
   while (true) {
-    buffer_reserve(buf, buf->used + read_size);
+    buffer_ensure_capacity(buf, buf->used + read_size);
 
     size_t size_just_read = fread(buf->data + buf->used, 1, read_size, f);
     buf->used += (uint32_t)(size_just_read);

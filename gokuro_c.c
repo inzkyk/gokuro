@@ -51,21 +51,20 @@ static bool begin_with(const char *a, const char *b) {
 
 typedef struct {
   uint32_t is_valid;
-  uint32_t body_offset;
+  // offset from {global|local}_macro_bodies.data (we cannot store the pointer because realloc() may change the base pointer)
+  uint32_t offset;
 } macro_def;
 
 typedef struct {
-  uint64_t key; // 64 bit due to alignment issue.
+  uint64_t key; // key is 64 bit due to alignment issue.
   macro_def value;
 } macro_hash_t;
 
-static uint64_t hash(void *data_begin, void *data_end)
-{
+static uint64_t hash(void *data_begin, void *data_end) {
   uint64_t hash = 1099511628211u;
-  for (unsigned char *c = (unsigned char *)(data_begin); c < (unsigned char *)data_end; c++)
-    {
-      hash = hash * 33 + *c;
-    }
+  for (unsigned char *c = (unsigned char *)(data_begin); c < (unsigned char *)data_end; c++) {
+    hash = hash * 33 + *c;
+  }
   return hash;
 }
 
@@ -91,8 +90,13 @@ static void gokuro(FILE *in, FILE *out) {
     return;
   }
 
-  const uint32_t buffer_initial_size = 1024 * 4;
+  time_t t = time(NULL);
+  stbds_rand_seed((uint32_t)(t));
 
+  macro_hash_t *global_macros = NULL;
+  macro_hash_t *local_macros = NULL;
+
+  const uint32_t buffer_initial_size = 1024 * 4;
   buffer_t input_buf = {0};
   buffer_init(&input_buf, buffer_initial_size);
   if (input_buf.data == NULL) {
@@ -128,43 +132,33 @@ static void gokuro(FILE *in, FILE *out) {
     return;
   }
 
-  time_t t = time(NULL);
-  stbds_rand_seed((uint32_t)(t));
+  { // load input to input_buf
+    buffer_read_all(&input_buf, in);
+    if (input_buf.used == 0) {
+      // nothing to output.
+      return;
+    }
 
-  macro_hash_t *global_macros = NULL;
-  macro_hash_t *local_macros = NULL;
-
-  buffer_read_all(&input_buf, in);
-  if (input_buf.used == 0) {
-    // input is empty.
-    return;
+    char last_char = *(input_buf.data + input_buf.used - 1);
+    if (last_char != '\n') {
+      // normalize the input.
+      buffer_put_char(&input_buf, '\n');
+    }
+    buffer_put_char(&input_buf, '\0');
   }
-  if (*(input_buf.data + input_buf.used - 1) != '\n') {
-    // normalize the input.
-    buffer_put(&input_buf, "\n", 1);
-  }
-  buffer_put(&input_buf, "\0", 1);
 
+  // the mainloop.
   char *input_index = input_buf.data;
   while (true) {
-    // read next line to line_buf.
-    {
-      char *c = input_index;
-      if (*c == '\0') {
-        break;
-      }
-      while (true) {
-        if (*c == '\n') {
-          break;
-        }
-        c++;
-      }
-
-      buffer_clear(&line_buf);
-      buffer_put_until(&line_buf, input_index, c);
-      buffer_put(&line_buf, "\0", 1);
-      input_index = c + 1;
+    if (*input_index == '\0') {
+      break;
     }
+
+    // read next line to line_buf.
+    buffer_clear(&line_buf);
+    buffer_put_until_char(&line_buf, input_index, '\n');
+    buffer_put_char(&line_buf, '\0');
+    input_index += line_buf.used;
 
     char *line_begin = line_buf.data;
     char *line_end = line_buf.data + line_buf.used - 1; // 1 = strlen("\0")
@@ -202,8 +196,8 @@ static void gokuro(FILE *in, FILE *out) {
         }
       }
 
-      buffer_put_string(&global_macro_bodies, name_end + 1);
-      buffer_put(&global_macro_bodies, "", 1);
+      buffer_put_until_char(&global_macro_bodies, name_end + 1, '\0');
+      buffer_put_char(&global_macro_bodies, '\0');
 
       uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
       macro_def m = {true, global_macro_bodies.used - body_length - 1}; // 1 = strlen("\0")
@@ -238,8 +232,8 @@ static void gokuro(FILE *in, FILE *out) {
       }
 
       local_macro_defined = true;
-      buffer_put_until(&local_macro_bodies, name_end + 2, line_end); // 2 = strlen(": ")
-      buffer_put(&local_macro_bodies, "", 1);
+      buffer_put_until_char(&local_macro_bodies, name_end + 2, '\0'); // 2 = strlen(": ")
+      buffer_put_char(&local_macro_bodies, '\0');
 
       uint32_t body_length = (uint32_t)(line_end - name_end) - 2; // 1 = strlen(": ")
       macro_def m = {true, local_macro_bodies.used - body_length - 1}; // 1 = strlen("\0")
@@ -256,57 +250,48 @@ static void gokuro(FILE *in, FILE *out) {
       char *macro_begin = NULL;
       char *macro_end = NULL;
       { // find the last macro call.
-        char *c = line_end; // *c == "\0"
-        while (true) {
-          if (c < line_begin) {
-            break;
-          }
+        uint32_t num_consecutive_open = 0;
+        uint32_t num_consecutive_close = 0;
+        for (char *c = line_end; line_begin <= c; c--) {
           if (*c == '{') {
-            c--;
-            if (*c == '{') {
-              c--;
-              if (*c == '{') {
-                macro_begin = c;
-                break;
-              }
+            num_consecutive_open++;
+            if (num_consecutive_open == 3) {
+              macro_begin = c;
+              break;
             }
-          } else if (*c == '}') {
-            c--;
-            if (*c == '}') {
-              c--;
-              if (*c == '}') {
-                while (*(c - 1) == '}') {
-                  c--;
-                }
-                macro_end = c + 3;
-                c--;
-                continue;
-              }
-            }
-          } else {
-            c--;
+            continue;
           }
+          num_consecutive_open = 0;
+
+          if (*c == '}') {
+            num_consecutive_close++;
+            if (num_consecutive_close >= 3) {
+              macro_end = c + 3;
+            }
+            continue;
+          }
+          num_consecutive_close = 0;
         }
 
         if (macro_begin == NULL || macro_end == NULL) {
-          // no macro to expand.
+          // no (more) macro to expand.
           break;
         }
       }
 
       char *name_begin = macro_begin + bbb_offset;
       char *name_end = NULL;
-      bool isConstant;
+      bool is_constant;
       { // get the length of the macro name.
         char *c = name_begin;
         while (true) {
           if (*c == '(') {
-            isConstant = false;
+            is_constant = false;
             break;
           }
 
           if (*c == '}') {
-            isConstant = true;
+            is_constant = true;
             break;
           }
           c++;
@@ -316,32 +301,32 @@ static void gokuro(FILE *in, FILE *out) {
 
       // lookup the definition of the macro.
       uint64_t name_hash = hash(name_begin, name_end);
-      char* macro_body_data = local_macro_bodies.data;
       macro_def m = hmget(local_macros, name_hash);
+      char* macro_body = local_macro_bodies.data + m.offset;
       if (!m.is_valid) {
         m = hmget(global_macros, name_hash);
-        macro_body_data = global_macro_bodies.data;
+        macro_body = global_macro_bodies.data + m.offset;
       }
 
       if (!m.is_valid) {
         // the macro is undefined.
         buffer_shrink_to(&line_buf, macro_begin);
-        buffer_put_until(&line_buf, macro_end, line_end + 1); // 1 = strlen("\0")
+        buffer_put_until_char(&line_buf, macro_end, '\0');
+        buffer_put_char(&line_buf, '\0');
         continue;
       }
 
-      if (isConstant) {
+      if (is_constant) {
         // temp_buf = line[macro_end:]
         buffer_clear(&temp_buf);
-        buffer_put_until(&temp_buf, macro_end, line_end + 1); // 1 = strlen("\0")
+        buffer_put_until_char(&temp_buf, macro_end, '\0');
 
         // line = line[:macro_begin] + macro_body + line[maro_end:]
         buffer_shrink_to(&line_buf, macro_begin);
-        buffer_put_string(&line_buf, macro_body_data + m.body_offset);
+        buffer_put_until_char(&line_buf, macro_body, '\0');
         buffer_copy(&line_buf, &temp_buf);
+        buffer_put_char(&line_buf, '\0');
       } else {
-        // expand the macro on temp_buf (we cannot modify line_buf because args depends on it).
-
         // parse the arguments.
         char *args[9] = {0}; // 9 = max bumber of the positions of arguments  ($1...$9)
         args[0] = name_end + 1; // 1 = strlen("(")
@@ -362,36 +347,37 @@ static void gokuro(FILE *in, FILE *out) {
           }
         }
 
+        // expand the macro on temp_buf (we cannot modify line_buf because args depends on it).
         buffer_clear(&temp_buf);
-        buffer_put_until(&temp_buf, line_begin, macro_begin);
-        char *writeFrom = macro_body_data + m.body_offset;
-        char *c = macro_body_data + m.body_offset;
+        buffer_put_until_ptr(&temp_buf, line_begin, macro_begin);
+        char *write_from = macro_body;
+        char *c = macro_body;
         while (true) {
           if (*c == '\0') {
-            buffer_put_until(&temp_buf, writeFrom, c);
+            buffer_put_until_char(&temp_buf, write_from, '\0');
             break;
           }
           if (*c == '$') {
             // If *c != '\0', we can read *(c + 1).
             if ('0' <= *(c + 1) && *(c + 1) <= '9') {
-              buffer_put_until(&temp_buf, writeFrom, c);
-              uint32_t argIndex = (uint32_t)(*(c + 1) - '0');
-              if (argIndex == 0) {
+              buffer_put_until_ptr(&temp_buf, write_from, c);
+              uint32_t arg_index = (uint32_t)(*(c + 1) - '0');
+              if (arg_index == 0) {
                 // The replacement is the whole text in the brackets.
                 char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
-                buffer_put_until(&temp_buf, args[0], until);
-              } else if (args[argIndex - 1] != NULL) {
-                 if ((argIndex == 9) || args[argIndex] == NULL) {
-                   // last argument
+                buffer_put_until_ptr(&temp_buf, args[0], until);
+              } else if (args[arg_index - 1] != NULL) {
+                 if ((arg_index == 9) || args[arg_index] == NULL) {
+                   // the last argument
                    char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
-                   buffer_put_until_escaping_comma(&temp_buf, args[argIndex - 1], until);
+                   buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
                 } else {
-                   char *until = args[argIndex] - 1; // 1 = strlen(",")
-                   buffer_put_until_escaping_comma(&temp_buf, args[argIndex - 1], until);
+                   char *until = args[arg_index] - 1; // 1 = strlen(",")
+                   buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
                 }
               }
               c += 2;
-              writeFrom = c;
+              write_from = c;
               continue;
             }
           }
@@ -399,11 +385,13 @@ static void gokuro(FILE *in, FILE *out) {
         }
 
         // copy the expanded line to line_buf.
-        buffer_put_until(&temp_buf, macro_end, line_end + 1); // 1 = strlen("\0")
+        buffer_put_until_char(&temp_buf, macro_end, '\0'); // 1 = strlen("\0")
         buffer_clear(&line_buf);
         buffer_copy(&line_buf, &temp_buf);
+        buffer_put_char(&line_buf, '\0');
       }
     }
+
     fputs(line_begin, out);
     fputs("\n", out);
     if (!local_macro_defined) {
@@ -412,10 +400,11 @@ static void gokuro(FILE *in, FILE *out) {
     }
   }
 
-  free(global_macro_bodies.data);
-  free(local_macro_bodies.data);
-  free(line_buf.data);
-  free(temp_buf.data);
+  buffer_free(&global_macro_bodies);
+  buffer_free(&local_macro_bodies);
+  buffer_free(&input_buf);
+  buffer_free(&line_buf);
+  buffer_free(&temp_buf);
   hmfree(global_macros);
   fflush(out);
 }
