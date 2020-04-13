@@ -1,4 +1,4 @@
-clang gokuro_c.c -o gokuro_c.exe -Weverything -Werror
+clang main.c -o gokuro_c.exe -Weverything -Werror
 
 @echo off
 
@@ -32,7 +32,7 @@ if "%~1" == "diff" (
 )
 
 if "%~1" == "release" (
-  clang gokuro_c.c -o gokuro_c.exe -Weverything -Werror -O3
+  clang main.c -o gokuro_c.exe -Weverything -Werror -O3
   goto last
 )
 
