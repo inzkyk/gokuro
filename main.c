@@ -253,24 +253,24 @@ static void gokuro(FILE *in, FILE *out) {
         uint32_t num_consecutive_open = 0;
         uint32_t num_consecutive_close = 0;
         for (char *c = line_end; line_begin <= c; c--) {
-          if (*c == '{') {
+          if (*c != '{' && *c != '}') {
+            num_consecutive_open = 0;
+            num_consecutive_close = 0;
+          } else if (*c == '{') {
             num_consecutive_open++;
+            num_consecutive_close = 0;
             if (num_consecutive_open == 3) {
               macro_begin = c;
               break;
             }
             continue;
-          }
-          num_consecutive_open = 0;
-
-          if (*c == '}') {
+          } else if (*c == '}') {
+            num_consecutive_open = 0;
             num_consecutive_close++;
             if (num_consecutive_close >= 3) {
               macro_end = c + 3;
             }
-            continue;
           }
-          num_consecutive_close = 0;
         }
 
         if (macro_begin == NULL || macro_end == NULL) {
