@@ -1,3 +1,5 @@
 #+MACRO: message The price is $0.
 
 >>>The price is $1.<<<
+
+>>>The price is $$1.<<<

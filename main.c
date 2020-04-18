@@ -1,6 +1,6 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <time.h>
 
 #ifdef _WIN32
@@ -8,7 +8,7 @@
 #include <fcntl.h>
 #endif
 
-#if __clang__
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wsign-conversion"
 #pragma clang diagnostic ignored "-Wunused-parameter"
@@ -22,14 +22,6 @@
 #if __clang__
 #pragma clang diagnostic pop
 #endif
-
-#ifndef __cplusplus
-typedef uint8_t bool;
-#define true 1
-#define false 0
-#endif
-
-#define lengthof(x) ((sizeof((x))) / (sizeof((x)[0])))
 
 #include "buffer.h"
 
@@ -49,14 +41,20 @@ static bool begin_with(const char *a, const char *b) {
   }
 }
 
+static bool is_digit(char c) {
+  return '0' <= c && c <= '9';
+}
+
 typedef struct {
   uint32_t is_valid;
-  // offset from {global|local}_macro_bodies.data (we cannot store the pointer because realloc() may change the base pointer)
+
+  // offset from {global|local}_macro_bodies.data (we cannot store
+  // the pointer because realloc() may change the base pointer)
   uint32_t offset;
 } macro_def;
 
 typedef struct {
-  uint64_t key; // key is 64 bit due to alignment issue.
+  uint64_t key; // key is 64 bit due to alignment requirement.
   macro_def value;
 } macro_hash_t;
 
@@ -69,27 +67,6 @@ static uint64_t hash(void *data_begin, void *data_end) {
 }
 
 static void gokuro(FILE *in, FILE *out) {
-#ifdef _WIN32
-  // output "\n" instead of "\r\n".
-  int oldmode = _setmode(_fileno(out), _O_BINARY);
-  if (oldmode == -1) {
-    fprintf(stderr, "_setmode() failed.\n");
-    return;
-  }
-#endif
-
-  int result = setvbuf(out, NULL, _IOFBF, 1024 * 4);
-  if (result != 0) {
-    fprintf(stderr, "setvbuf() failed.\n");
-    return;
-  }
-
-  result = setvbuf(in, NULL, _IOFBF, 1024 * 4);
-  if (result != 0) {
-    fprintf(stderr, "setvbuf() failed.\n");
-    return;
-  }
-
   time_t t = time(NULL);
   stbds_rand_seed((uint32_t)(t));
 
@@ -163,9 +140,8 @@ static void gokuro(FILE *in, FILE *out) {
     char *line_begin = line_buf.data;
     char *line_end = line_buf.data + line_buf.used - 1; // 1 = strlen("\0")
 
-    // global macro definition.
+    // Does this line define a global macro?
     if (begin_with(line_begin, "#+MACRO: ")) {
-      // This line may define a global macro.
       const uint32_t name_offset = 9; // 9 = strlen("#+MACRO: ")
 
       if (*(line_begin + name_offset) == '\0') {
@@ -209,12 +185,12 @@ static void gokuro(FILE *in, FILE *out) {
       continue;
     }
 
-    // local macro definition.
+    // Does this line define a local macro?
     bool local_macro_defined = false;
     if (begin_with(line_begin, "#+")) {
       char *name_begin = line_begin + 2; // 2 = strlen("#+")
       char *name_end = NULL;
-      {
+      { // find ":"
         char *c = name_begin;
         while(*c != '\0') {
           if (*c == ':') {
@@ -242,24 +218,28 @@ static void gokuro(FILE *in, FILE *out) {
     }
 
     // macro expansion
+    uint32_t macro_offset = 0; // line_buf does not have a macro from (line_end - macro_offset) to (line_end).
     while (true) {
       const uint32_t bbb_offset = 3; // 3 = strlen("{{{") or strlen("}}}")
+
+      // need to reasign line_begin and line_end because line_buf gets modified in macro expansion.
       line_begin = line_buf.data;
       line_end = line_buf.data + line_buf.used - 1; // 1 = strlen("\0")
 
+      // expand the last macro call first, so that nested calls are treated properly.
       char *macro_begin = NULL;
       char *macro_end = NULL;
       { // find the last macro call.
         uint32_t num_consecutive_open = 0;
         uint32_t num_consecutive_close = 0;
-        for (char *c = line_end; line_begin <= c; c--) {
+        for (char *c = line_end - macro_offset; line_begin <= c; c--) {
           if (*c != '{' && *c != '}') {
             num_consecutive_open = 0;
             num_consecutive_close = 0;
           } else if (*c == '{') {
             num_consecutive_open++;
             num_consecutive_close = 0;
-            if (num_consecutive_open == 3) {
+            if (num_consecutive_open == bbb_offset) {
               macro_begin = c;
               break;
             }
@@ -267,8 +247,11 @@ static void gokuro(FILE *in, FILE *out) {
           } else if (*c == '}') {
             num_consecutive_open = 0;
             num_consecutive_close++;
-            if (num_consecutive_close >= 3) {
-              macro_end = c + 3;
+            if (num_consecutive_close >= bbb_offset) {
+              if (macro_end == NULL) {
+                macro_offset = (uint32_t)(line_end - c) - bbb_offset;
+              }
+              macro_end = c + bbb_offset;
             }
           }
         }
@@ -279,6 +262,7 @@ static void gokuro(FILE *in, FILE *out) {
         }
       }
 
+      // macro found
       char *name_begin = macro_begin + bbb_offset;
       char *name_end = NULL;
       bool is_constant;
@@ -332,7 +316,7 @@ static void gokuro(FILE *in, FILE *out) {
         args[0] = name_end + 1; // 1 = strlen("(")
         uint32_t currentIndex = 1;
         for (char *c = args[0]; c < macro_end; c++) {
-          if (currentIndex == lengthof(args)) {
+          if (currentIndex == 9) {
             break;
           }
           if (*c == ',') {
@@ -357,28 +341,32 @@ static void gokuro(FILE *in, FILE *out) {
             buffer_put_until_char(&temp_buf, write_from, '\0');
             break;
           }
-          if (*c == '$') {
-            // If *c != '\0', we can read *(c + 1).
-            if ('0' <= *(c + 1) && *(c + 1) <= '9') {
-              buffer_put_until_ptr(&temp_buf, write_from, c);
-              uint32_t arg_index = (uint32_t)(*(c + 1) - '0');
-              if (arg_index == 0) {
-                // The replacement is the whole text in the brackets.
-                char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
-                buffer_put_until_ptr(&temp_buf, args[0], until);
-              } else if (args[arg_index - 1] != NULL) {
-                 if ((arg_index == 9) || args[arg_index] == NULL) {
-                   // the last argument
-                   char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
-                   buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
-                } else {
-                   char *until = args[arg_index] - 1; // 1 = strlen(",")
-                   buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
-                }
-              }
-              c += 2;
-              write_from = c;
-              continue;
+          if (*c != '$') {
+            c++;
+            continue;
+          }
+          // If *c != '\0', we can read *(c + 1).
+          c++;
+          if (!is_digit(*c)) {
+            continue;
+          }
+
+          // argument found in the macro body.
+          buffer_put_until_ptr(&temp_buf, write_from, c - 1);
+          write_from = c + 1;
+          uint32_t arg_index = (uint32_t)(*c - '0');
+          if (arg_index == 0) {
+            // The replacement is the whole text in the brackets.
+            char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
+            buffer_put_until_ptr(&temp_buf, args[0], until);
+          } else if (args[arg_index - 1] != NULL) {
+            if ((arg_index == 9) || args[arg_index] == NULL) {
+              // the last argument
+              char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
+              buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
+            } else {
+              char *until = args[arg_index] - 1; // 1 = strlen(",")
+              buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
             }
           }
           c++;
@@ -409,6 +397,35 @@ static void gokuro(FILE *in, FILE *out) {
   fflush(out);
 }
 
+static int init_io(FILE *in, FILE *out) {
+#ifdef _WIN32
+  // output "\n" instead of "\r\n".
+  int oldmode = _setmode(_fileno(out), _O_BINARY);
+  if (oldmode == -1) {
+    fprintf(stderr, "_setmode() failed.\n");
+    return 1;
+  }
+#endif
+
+  int result = setvbuf(out, NULL, _IOFBF, 1024 * 4);
+  if (result != 0) {
+    fprintf(stderr, "setvbuf() failed.\n");
+    return 1;
+  }
+
+  result = setvbuf(in, NULL, _IOFBF, 1024 * 4);
+  if (result != 0) {
+    fprintf(stderr, "setvbuf() failed.\n");
+    return 1;
+  }
+
+  return 0;
+}
+
 int main() {
+  if (init_io(stdin, stdout) != 0) {
+    return 1;
+  }
+
   gokuro(stdin, stdout);
 }

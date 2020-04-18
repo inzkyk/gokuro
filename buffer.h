@@ -1,7 +1,8 @@
 #pragma once
 
-typedef struct
-{
+#include <string.h>
+
+typedef struct {
   char *data;
   uint32_t capacity;
   uint32_t used;
