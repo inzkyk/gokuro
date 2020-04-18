@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include <time.h>
 
@@ -8,22 +9,8 @@
 #include <fcntl.h>
 #endif
 
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wsign-conversion"
-#pragma clang diagnostic ignored "-Wunused-parameter"
-#pragma clang diagnostic ignored "-Wcast-align"
-#pragma clang diagnostic ignored "-Wshadow"
-#endif
-
-#define STB_DS_IMPLEMENTATION
-#include "stb_ds.h"
-
-#if __clang__
-#pragma clang diagnostic pop
-#endif
-
 #include "buffer.h"
+#include "hash_map.h"
 
 // a =? b + X
 static bool begin_with(const char *a, const char *b) {
@@ -45,21 +32,8 @@ static bool is_digit(char c) {
   return '0' <= c && c <= '9';
 }
 
-typedef struct {
-  uint32_t is_valid;
-
-  // offset from {global|local}_macro_bodies.data (we cannot store
-  // the pointer because realloc() may change the base pointer)
-  uint32_t offset;
-} macro_def;
-
-typedef struct {
-  uint64_t key; // key is 64 bit due to alignment requirement.
-  macro_def value;
-} macro_hash_t;
-
-static uint64_t hash(void *data_begin, void *data_end) {
-  uint64_t hash = 1099511628211u;
+static uint32_t hash(void *data_begin, void *data_end) {
+  uint32_t hash = 2147483647u;
   for (unsigned char *c = (unsigned char *)(data_begin); c < (unsigned char *)data_end; c++) {
     hash = hash * 33 + *c;
   }
@@ -67,13 +41,12 @@ static uint64_t hash(void *data_begin, void *data_end) {
 }
 
 static void gokuro(FILE *in, FILE *out) {
-  time_t t = time(NULL);
-  stbds_rand_seed((uint32_t)(t));
+  hash_map_t global_macro_map = {0};
+  hash_map_t local_macro_map = {0};
+  hash_map_init(&global_macro_map, 32);
+  hash_map_init(&local_macro_map, 32);
 
-  macro_hash_t *global_macros = NULL;
-  macro_hash_t *local_macros = NULL;
-
-  const uint32_t buffer_initial_size = 1024 * 4;
+  const uint32_t buffer_initial_size = 4 * 1024;
   buffer_t input_buf = {0};
   buffer_init(&input_buf, buffer_initial_size);
   if (input_buf.data == NULL) {
@@ -176,9 +149,9 @@ static void gokuro(FILE *in, FILE *out) {
       buffer_put_char(&global_macro_bodies, '\0');
 
       uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
-      macro_def m = {true, global_macro_bodies.used - body_length - 1}; // 1 = strlen("\0")
-      uint64_t macro_name_hash = hash(name_begin, name_end);
-      hmput(global_macros, macro_name_hash, m);
+      uint32_t body_offset = global_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
+      uint32_t macro_name_hash = hash(name_begin, name_end);
+      hash_map_put(&global_macro_map, macro_name_hash, body_offset);
 
       fputs(line_begin, out);
       fputs("\n", out);
@@ -186,7 +159,6 @@ static void gokuro(FILE *in, FILE *out) {
     }
 
     // Does this line define a local macro?
-    bool local_macro_defined = false;
     if (begin_with(line_begin, "#+")) {
       char *name_begin = line_begin + 2; // 2 = strlen("#+")
       char *name_end = NULL;
@@ -207,14 +179,13 @@ static void gokuro(FILE *in, FILE *out) {
         }
       }
 
-      local_macro_defined = true;
       buffer_put_until_char(&local_macro_bodies, name_end + 2, '\0'); // 2 = strlen(": ")
       buffer_put_char(&local_macro_bodies, '\0');
 
       uint32_t body_length = (uint32_t)(line_end - name_end) - 2; // 1 = strlen(": ")
-      macro_def m = {true, local_macro_bodies.used - body_length - 1}; // 1 = strlen("\0")
-      uint64_t macro_name_hash = hash(name_begin, name_end);
-      hmput(local_macros, macro_name_hash, m);
+      uint32_t body_offset = local_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
+      uint32_t macro_name_hash = hash(name_begin, name_end);
+      hash_map_put(&local_macro_map, macro_name_hash, body_offset);
 
       fputs(line_begin, out);
       fputs("\n", out);
@@ -288,15 +259,22 @@ static void gokuro(FILE *in, FILE *out) {
       }
 
       // lookup the definition of the macro.
-      uint64_t name_hash = hash(name_begin, name_end);
-      macro_def m = hmget(local_macros, name_hash);
-      char* macro_body = local_macro_bodies.data + m.offset;
-      if (!m.is_valid) {
-        m = hmget(global_macros, name_hash);
-        macro_body = global_macro_bodies.data + m.offset;
+      char* macro_body = NULL;
+      {
+        uint32_t name_hash = hash(name_begin, name_end);
+        uint32_t body_offset = hash_map_get(&local_macro_map, name_hash);
+
+        if (body_offset != UINT32_MAX) {
+          macro_body = local_macro_bodies.data + body_offset;
+        } else {
+          body_offset = hash_map_get(&global_macro_map, name_hash);
+          if (body_offset != UINT32_MAX) {
+            macro_body = global_macro_bodies.data + body_offset;
+          }
+        }
       }
 
-      if (!m.is_valid) {
+      if (macro_body == NULL) {
         // the macro is undefined.
         buffer_shrink_to(&line_buf, macro_begin);
         buffer_put_until_char(&line_buf, macro_end, '\0');
@@ -386,16 +364,16 @@ static void gokuro(FILE *in, FILE *out) {
 
     fputs(line_begin, out);
     fputs("\n", out);
-    hmfree(local_macros);
-    local_macros = NULL;
+    hash_map_clear(&local_macro_map);
   }
 
   buffer_free(&global_macro_bodies);
   buffer_free(&local_macro_bodies);
+  hash_map_free(&global_macro_map);
+  hash_map_free(&local_macro_map);
   buffer_free(&input_buf);
   buffer_free(&line_buf);
   buffer_free(&temp_buf);
-  hmfree(global_macros);
   fflush(out);
 }
 
