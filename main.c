@@ -215,6 +215,10 @@ static void gokuro(FILE *in, FILE *out) {
       macro_def m = {true, local_macro_bodies.used - body_length - 1}; // 1 = strlen("\0")
       uint64_t macro_name_hash = hash(name_begin, name_end);
       hmput(local_macros, macro_name_hash, m);
+
+      fputs(line_begin, out);
+      fputs("\n", out);
+      continue;
     }
 
     // macro expansion
@@ -382,10 +386,8 @@ static void gokuro(FILE *in, FILE *out) {
 
     fputs(line_begin, out);
     fputs("\n", out);
-    if (!local_macro_defined) {
-      hmfree(local_macros);
-      local_macros = NULL;
-    }
+    hmfree(local_macros);
+    local_macros = NULL;
   }
 
   buffer_free(&global_macro_bodies);
