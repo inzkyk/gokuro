@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 #include <time.h>
 
 #ifdef _WIN32
@@ -9,10 +10,10 @@
 #include <fcntl.h>
 #endif
 
-#include "buffer.h"
-#include "hash_map.h"
+#define PANIC() do { exit(1); } while(0)
+#define MEMORY_MAX_SIZE 1024 * 1024 * 128
 
-// a =? b + X
+///// util functions
 static bool begin_with(const char *a, const char *b) {
   uint32_t i = 0;
   while (true) {
@@ -32,55 +33,298 @@ static bool is_digit(char c) {
   return '0' <= c && c <= '9';
 }
 
-static uint32_t hash(void *data_begin, void *data_end) {
+static uint32_t hash_32(void *data_begin, void *data_end) {
   uint32_t hash = 2147483647u;
   for (unsigned char *c = (unsigned char *)(data_begin); c < (unsigned char *)data_end; c++) {
     hash = hash * 33 + *c;
   }
   return hash;
 }
+///// util functions end
+
+///// hash_map begin
+typedef struct {
+  uint32_t *keys;
+  uint32_t *items;
+  uint32_t size;
+  uint32_t capacity;
+} hash_map_t;
+
+static void hash_map_init(hash_map_t *hm, uint32_t initial_capacity) {
+  if (2 * sizeof(uint32_t) * initial_capacity > MEMORY_MAX_SIZE) {
+    fprintf(stderr, "too much memory requested.\n");
+    PANIC();
+  }
+
+  hm->keys = (uint32_t *)malloc(sizeof(uint32_t) * initial_capacity);
+  hm->items = (uint32_t *)malloc(sizeof(uint32_t) * initial_capacity);
+  hm->size = 0;
+  hm->capacity = initial_capacity;
+
+  if ((hm->keys == NULL) || (hm->items == NULL)) {
+    fprintf(stderr, "malloc() failed\n");
+    PANIC();
+  }
+
+  for (uint32_t i = 0; i < initial_capacity; i++) {
+    hm->keys[i] = UINT32_MAX;
+    hm->items[i] = UINT32_MAX;
+  }
+}
+
+static void hash_map_put(hash_map_t *hm, uint32_t key, uint32_t item) {
+  uint32_t idx = key % hm->capacity;
+  while (true) {
+    if (hm->keys[idx] == UINT32_MAX) {
+      hm->size++;
+      break;
+    }
+    if (hm->keys[idx] == key) {
+      break;
+    }
+    idx = (idx + 1) % hm->capacity;
+  }
+
+  hm->keys[idx] = key;
+  hm->items[idx] = item;
+
+  if (2 * hm->size < hm->capacity) {
+    return;
+  }
+
+  // enlarge buffer.
+  uint32_t old_capacity = hm->capacity;
+  uint32_t new_capacity = hm->capacity * 2;
+  if (2 * sizeof(uint32_t) * new_capacity > MEMORY_MAX_SIZE) {
+    fprintf(stderr, "too much memory requested\n");
+    PANIC();
+  }
+  uint32_t *temp1 = (uint32_t *)(realloc(hm->keys, sizeof(uint32_t) * new_capacity));
+  uint32_t *temp2 = (uint32_t *)(realloc(hm->items, sizeof(uint32_t) * new_capacity));
+  if ((temp1 == NULL) || (temp2 == NULL)) {
+    fprintf(stderr, "realloc() failed\n");
+    PANIC();
+  }
+  hm->keys = temp1;
+  hm->items = temp2;
+  hm->capacity = new_capacity;
+
+  // rehash all existing items.
+  // this operation takes O(n) time.
+  uint32_t *key_buf = (uint32_t *)(malloc(sizeof(uint32_t) * old_capacity));
+  uint32_t *item_buf = (uint32_t *)(malloc(sizeof(uint32_t) * old_capacity));
+  memcpy(key_buf, hm->keys, sizeof(uint32_t) * old_capacity);
+  memcpy(item_buf, hm->items, sizeof(uint32_t) * old_capacity);
+
+  // clear data.
+  for (uint32_t i = 0; i < new_capacity; i++) {
+    hm->keys[i] = UINT32_MAX;
+    hm->items[i] = UINT32_MAX;
+  }
+
+  for (uint32_t old_idx = 0; old_idx < old_capacity; old_idx++) {
+    if (key_buf[old_idx] == UINT32_MAX) {
+      // this slot is empty.
+      continue;
+    }
+
+    uint32_t new_idx = key_buf[old_idx] % new_capacity;
+    while (true) {
+      if (hm->keys[new_idx] == UINT32_MAX) {
+        break;
+      }
+      new_idx = (new_idx + 1) % new_capacity;
+    }
+    hm->keys[new_idx] = key_buf[old_idx];
+    hm->items[new_idx] = item_buf[old_idx];
+  }
+  free(key_buf);
+  free(item_buf);
+}
+
+static uint32_t hash_map_get(hash_map_t *hm, uint32_t key) {
+  uint32_t idx = key % hm->capacity;
+  while (true) {
+    if (hm->keys[idx] == key) {
+      return hm->items[idx];
+    }
+    if (hm->keys[idx] == UINT32_MAX) {
+      return UINT32_MAX;
+    }
+    idx = (idx + 1) % hm->capacity;
+  }
+}
+
+static void hash_map_clear(hash_map_t *hm) {
+  if (hm->size == 0) {
+    return;
+  }
+
+  for (uint32_t i = 0; i < hm->capacity; i++) {
+    hm->keys[i] = UINT32_MAX;
+    hm->items[i] = UINT32_MAX;
+  }
+  hm->size = 0;
+}
+
+static void hash_map_free(hash_map_t *hm) {
+  free(hm->keys);
+  free(hm->items);
+}
+///// hash_map end
+
+///// buffer begin
+typedef struct {
+  char *data;
+  uint32_t capacity;
+  uint32_t used;
+} buffer_t;
+
+static void buffer_free(buffer_t *buf) {
+  free(buf->data);
+  buf->data = NULL;
+  buf->used = 0;
+  buf->capacity = 0;
+}
+
+static void buffer_reserve(buffer_t *buf, uint32_t capacity) {
+  if (buf->capacity >= capacity) {
+    return;
+  }
+
+  uint32_t new_capacity = 2 * capacity;
+  if (new_capacity > MEMORY_MAX_SIZE) {
+    fprintf(stderr, "too much memory requested.\n");
+    PANIC();
+  }
+  char *tmp = (char *)(realloc(buf->data, new_capacity));
+  if (tmp == NULL) {
+    fprintf(stderr, "realloc() failed");
+    PANIC();
+  }
+
+  buf->data = tmp;
+  buf->capacity = new_capacity;
+}
+
+static void buffer_put(buffer_t *buf, const char *data, uint32_t data_size) {
+  if (data_size == 0) {
+    return;
+  }
+
+  buffer_reserve(buf, buf->used + data_size);
+
+  for (uint32_t i = 0; i < data_size; i++) {
+    buf->data[buf->used + i] = data[i];
+  }
+
+  buf->used += data_size;
+}
+
+static void buffer_put_char(buffer_t *buf, char c) {
+  buffer_reserve(buf, buf->used + 1);
+  buf->data[buf->used] = c;
+  buf->used++;
+}
+
+static void buffer_put_until_ptr(buffer_t *buf, const char *data, const char *data_end) {
+  bool valid = data <= data_end;
+  if (!valid) {
+    return;
+  }
+
+  uint32_t data_size = (uint32_t)(data_end - data);
+  buffer_reserve(buf, buf->used + data_size);
+
+  for (const char *c = data; c < data_end; c++) {
+    buf->data[buf->used] = *c;
+    buf->used++;
+  }
+}
+
+static void buffer_put_until_ptr_escaping_comma(buffer_t *buf, const char *data, const char *data_end) {
+  bool valid = data <= data_end;
+  if (!valid) {
+    return;
+  }
+
+  uint32_t max_data_size = (uint32_t)(data_end - data);
+  buffer_reserve(buf, buf->used + max_data_size);
+
+  for (const char *c = data; c < data_end; c++) {
+    if ((*c == '\\') && (*(c + 1) == ',')) {
+      buf->data[buf->used] = ',';
+      buf->used++;
+      c++;
+    } else {
+      buf->data[buf->used] = *c;
+      buf->used++;
+    }
+  }
+}
+
+static void buffer_put_until_char(buffer_t *buf, const char *data, char c) {
+  for (uint32_t i = 0; data[i] != c; i++) {
+    if (buf->used == buf->capacity) {
+      buffer_reserve(buf, 2 * buf->capacity);
+    }
+    buf->data[buf->used] = data[i];
+    buf->used++;
+  }
+}
+
+static void buffer_shrink_to(buffer_t *buf, const char *to) {
+  bool valid = (buf->data <= to) && (to <= buf->data + buf->used);
+  if (!valid) {
+    return;
+  }
+
+  buf->used = (uint32_t)(to - buf->data);
+}
+
+static void buffer_clear(buffer_t *buf) {
+  buf->used = 0;
+}
+
+static void buffer_copy(buffer_t *buf1, buffer_t *buf2) {
+  buffer_put(buf1, buf2->data, buf2->used);
+}
+
+static void buffer_read_all(buffer_t *buf, FILE *f) {
+  uint32_t read_size = 1024 * 4;
+
+  while (true) {
+    buffer_reserve(buf, buf->used + read_size);
+
+    size_t size_just_read = fread(buf->data + buf->used, 1, read_size, f);
+    buf->used += (uint32_t)(size_just_read);
+    bool input_consumed = (size_just_read < read_size);
+    if (input_consumed) {
+      break;
+    }
+    read_size *= 2;
+  }
+}
+///// buffer end
 
 static void gokuro(FILE *in, FILE *out) {
   hash_map_t global_macro_map = {0};
   hash_map_t local_macro_map = {0};
-  hash_map_init(&global_macro_map, 32);
-  hash_map_init(&local_macro_map, 32);
+  hash_map_init(&global_macro_map, 128);
+  hash_map_init(&local_macro_map, 128);
 
   const uint32_t buffer_initial_size = 4 * 1024;
   buffer_t input_buf = {0};
-  buffer_init(&input_buf, buffer_initial_size);
-  if (input_buf.data == NULL) {
-    fprintf(stderr, "memory allocation failed.\n");
-    return;
-  }
-
   buffer_t line_buf = {0};
-  buffer_init(&line_buf, buffer_initial_size);
-  if (line_buf.data == NULL) {
-    fprintf(stderr, "memory allocation failed.\n");
-    return;
-  }
-
   buffer_t temp_buf = {0};
-  buffer_init(&temp_buf, buffer_initial_size);
-  if (temp_buf.data == NULL) {
-    fprintf(stderr, "memory allocation failed.\n");
-    return;
-  }
-
   buffer_t global_macro_bodies = {0};
-  buffer_init(&global_macro_bodies, buffer_initial_size);
-  if (global_macro_bodies.data == NULL) {
-    fprintf(stderr, "memory allocation failed.\n");
-    return;
-  }
-
   buffer_t local_macro_bodies = {0};
-  buffer_init(&local_macro_bodies, buffer_initial_size);
-  if (local_macro_bodies.data == NULL) {
-    fprintf(stderr, "memory allocation failed.\n");
-    return;
-  }
+
+  buffer_reserve(&input_buf, buffer_initial_size);
+  buffer_reserve(&line_buf, buffer_initial_size);
+  buffer_reserve(&temp_buf, buffer_initial_size);
+  buffer_reserve(&global_macro_bodies, buffer_initial_size);
+  buffer_reserve(&local_macro_bodies, buffer_initial_size);
 
   { // load input to input_buf
     buffer_read_all(&input_buf, in);
@@ -91,7 +335,7 @@ static void gokuro(FILE *in, FILE *out) {
 
     char last_char = *(input_buf.data + input_buf.used - 1);
     if (last_char != '\n') {
-      // normalize the input.
+      // add a newline to input.
       buffer_put_char(&input_buf, '\n');
     }
     buffer_put_char(&input_buf, '\0');
@@ -150,7 +394,7 @@ static void gokuro(FILE *in, FILE *out) {
 
       uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
       uint32_t body_offset = global_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
-      uint32_t macro_name_hash = hash(name_begin, name_end);
+      uint32_t macro_name_hash = hash_32(name_begin, name_end);
       hash_map_put(&global_macro_map, macro_name_hash, body_offset);
 
       fputs(line_begin, out);
@@ -184,7 +428,7 @@ static void gokuro(FILE *in, FILE *out) {
 
       uint32_t body_length = (uint32_t)(line_end - name_end) - 2; // 1 = strlen(": ")
       uint32_t body_offset = local_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
-      uint32_t macro_name_hash = hash(name_begin, name_end);
+      uint32_t macro_name_hash = hash_32(name_begin, name_end);
       hash_map_put(&local_macro_map, macro_name_hash, body_offset);
 
       fputs(line_begin, out);
@@ -261,7 +505,7 @@ static void gokuro(FILE *in, FILE *out) {
       // lookup the definition of the macro.
       char* macro_body = NULL;
       {
-        uint32_t name_hash = hash(name_begin, name_end);
+        uint32_t name_hash = hash_32(name_begin, name_end);
         uint32_t body_offset = hash_map_get(&local_macro_map, name_hash);
 
         if (body_offset != UINT32_MAX) {
