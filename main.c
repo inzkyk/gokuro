@@ -383,22 +383,17 @@ static void gokuro(FILE *in, FILE *out) {
         }
 
         if (name_end == NULL) {
-          fputs(line_begin, out);
-          fputs("\n", out);
           continue;
         }
       }
 
+      // save this macro.
       buffer_put_until_char(&global_macro_bodies, name_end + 1, '\0');
       buffer_put_char(&global_macro_bodies, '\0');
-
       uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
       uint32_t body_offset = global_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
       uint32_t macro_name_hash = hash_32(name_begin, name_end);
       hash_map_put(&global_macro_map, macro_name_hash, body_offset);
-
-      fputs(line_begin, out);
-      fputs("\n", out);
       continue;
     }
 
@@ -409,7 +404,7 @@ static void gokuro(FILE *in, FILE *out) {
       { // find ":"
         char *c = name_begin;
         while(*c != '\0') {
-          if (*c == ':') {
+          if (*c == ':' && *(c + 1) == ' ') {
             name_end = c;
             break;
           }
@@ -423,16 +418,13 @@ static void gokuro(FILE *in, FILE *out) {
         }
       }
 
+      // save this macro.
       buffer_put_until_char(&local_macro_bodies, name_end + 2, '\0'); // 2 = strlen(": ")
       buffer_put_char(&local_macro_bodies, '\0');
-
       uint32_t body_length = (uint32_t)(line_end - name_end) - 2; // 1 = strlen(": ")
       uint32_t body_offset = local_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
       uint32_t macro_name_hash = hash_32(name_begin, name_end);
       hash_map_put(&local_macro_map, macro_name_hash, body_offset);
-
-      fputs(line_begin, out);
-      fputs("\n", out);
       continue;
     }
 

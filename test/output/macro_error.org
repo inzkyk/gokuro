@@ -1,6 +1,3 @@
-#+MACRO: value 1
-#+MACRO: verbatim $0
-#+MACRO: verbatim2 $1 $2
 
 
 
