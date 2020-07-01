@@ -354,90 +354,105 @@ static void gokuro(FILE *in, FILE *out) {
     buffer_put_char(&line_buf, '\0');
     input_index += line_buf.used;
 
-    char *line_begin = line_buf.data;
-    char *line_end = line_buf.data + line_buf.used - 1; // 1 = strlen("\0")
+    enum LINE_TYPE {
+      LINE_TYPE_NORMAL,
+      LINE_TYPE_GLOBAL_MACRO_DEFINITION,
+      LINE_TYPE_LOCAL_MACRO_DEFINITION,
+    } line_type = LINE_TYPE_NORMAL;
 
-    // Does this line define a global macro?
-    if (begin_with(line_begin, "#+MACRO: ")) {
-      const uint32_t name_offset = 9; // 9 = strlen("#+MACRO: ")
+    // macro_offset stores how far the macro expansion proceeds.
+    // loop invariant at the begenning of the loop below:
+    //   "line_buf does not have a macro from (line_end - macro_offset) to (line_end)."
+    uint32_t macro_offset = 0;
 
-      if (*(line_begin + name_offset) == '\0') {
-        // This line does not define a global macro.
-        break;
-      }
-
-      char *name_begin = line_begin + name_offset;
-      char *name_end = NULL;
-      { // read the name of the macro.
-        char *c = name_begin;
-        while (true) {
-          if (*c == ' ') {
-            name_end = c;
-            break;
-          }
-          if (*c == '\0') {
-            // This line does not define a global macro.
-            break;
-          }
-          c++;
-        }
-
-        if (name_end == NULL) {
-          continue;
-        }
-      }
-
-      // save this macro.
-      buffer_put_until_char(&global_macro_bodies, name_end + 1, '\0');
-      buffer_put_char(&global_macro_bodies, '\0');
-      uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
-      uint32_t body_offset = global_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
-      uint32_t macro_name_hash = hash_32(name_begin, name_end);
-      hash_map_put(&global_macro_map, macro_name_hash, body_offset);
-      continue;
-    }
-
-    // Does this line define a local macro?
-    if (begin_with(line_begin, "#+")) {
-      char *name_begin = line_begin + 2; // 2 = strlen("#+")
-      char *name_end = NULL;
-      { // find ":"
-        char *c = name_begin;
-        while(*c != '\0') {
-          if (*c == ':' && *(c + 1) == ' ') {
-            name_end = c;
-            break;
-          }
-          c++;
-        }
-        if (name_end == NULL) {
-          // this line does not define a local macro.
-          fputs(line_begin, out);
-          fputs("\n", out);
-          continue;
-        }
-      }
-
-      // save this macro.
-      buffer_put_until_char(&local_macro_bodies, name_end + 2, '\0'); // 2 = strlen(": ")
-      buffer_put_char(&local_macro_bodies, '\0');
-      uint32_t body_length = (uint32_t)(line_end - name_end) - 2; // 1 = strlen(": ")
-      uint32_t body_offset = local_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
-      uint32_t macro_name_hash = hash_32(name_begin, name_end);
-      hash_map_put(&local_macro_map, macro_name_hash, body_offset);
-      continue;
-    }
-
-    // macro expansion
-    uint32_t macro_offset = 0; // line_buf does not have a macro from (line_end - macro_offset) to (line_end).
     while (true) {
+      // line_begin and line_end can not be precomputed because
+      // line_buf gets modified in macro expansion.
+      char *line_begin = line_buf.data;
+      char *line_end = line_buf.data + line_buf.used - 1; // 1 = strlen("\0")
+
+      // shortcut
+      if (*line_begin != '#') {
+        goto MACRO_EXPANSION;
+      }
+
+      // Does this line define a global macro?
+      if (begin_with(line_begin, "#+MACRO: ")) {
+        const uint32_t name_offset = 9; // 9 = strlen("#+MACRO: ")
+
+        if (*(line_begin + name_offset) == '\0') {
+          // This line does not define a global macro.
+          break;
+        }
+
+        char *name_begin = line_begin + name_offset;
+        char *name_end = NULL;
+        { // read the name of the macro.
+          char *c = name_begin;
+          while (true) {
+            if (*c == ' ') {
+              name_end = c;
+              break;
+            }
+            if (*c == '\0') {
+              // The name is empty: this line does not define a global macro.
+              break;
+            }
+            c++;
+          }
+        }
+
+        if (name_end != NULL) {
+          line_type = LINE_TYPE_GLOBAL_MACRO_DEFINITION;
+
+          // save this macro.
+          buffer_put_until_char(&global_macro_bodies, name_end + 1, '\0'); // 1 = strlen(" ")
+          buffer_put_char(&global_macro_bodies, '\0');
+          uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
+          uint32_t body_offset = global_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
+          uint32_t macro_name_hash = hash_32(name_begin, name_end);
+          hash_map_put(&global_macro_map, macro_name_hash, body_offset);
+          break;
+        }
+      }
+
+      // Does this line define a local macro?
+      if (begin_with(line_begin, "#+MACRO_LOCAL: ")) {
+        char *name_begin = line_begin + 15; // 15 = strlen("#+MACRO_LOCAL: ")
+        char *name_end = NULL;
+        { // read the name of the macro.
+          char *c = name_begin;
+          while (true) {
+            if (*c == ' ') {
+              name_end = c;
+              break;
+            }
+            if (*c == '\0') {
+              // This line does not define a global macro.
+              break;
+            }
+            c++;
+          }
+        }
+
+        if (name_end != NULL) {
+          line_type = LINE_TYPE_LOCAL_MACRO_DEFINITION;
+
+          // save this macro.
+          buffer_put_until_char(&local_macro_bodies, name_end + 1, '\0'); // 1 = strlen(" ")
+          buffer_put_char(&local_macro_bodies, '\0');
+          uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
+          uint32_t body_offset = local_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
+          uint32_t macro_name_hash = hash_32(name_begin, name_end);
+          hash_map_put(&local_macro_map, macro_name_hash, body_offset);
+          break;
+        }
+      }
+
+MACRO_EXPANSION:
+      // expand the last macro (so that nested calls are treated properly)
       const uint32_t bbb_offset = 3; // 3 = strlen("{{{") or strlen("}}}")
 
-      // need to reasign line_begin and line_end because line_buf gets modified in macro expansion.
-      line_begin = line_buf.data;
-      line_end = line_buf.data + line_buf.used - 1; // 1 = strlen("\0")
-
-      // expand the last macro call first, so that nested calls are treated properly.
       char *macro_begin = NULL;
       char *macro_end = NULL;
       { // find the last macro call.
@@ -469,6 +484,7 @@ static void gokuro(FILE *in, FILE *out) {
 
         if (macro_begin == NULL || macro_end == NULL) {
           // no (more) macro to expand.
+          line_type = LINE_TYPE_NORMAL;
           break;
         }
       }
@@ -511,7 +527,7 @@ static void gokuro(FILE *in, FILE *out) {
       }
 
       if (macro_body == NULL) {
-        // the macro is undefined.
+        // the macro is undefined: delete the call.
         buffer_shrink_to(&line_buf, macro_begin);
         buffer_put_until_char(&line_buf, macro_end, '\0');
         buffer_put_char(&line_buf, '\0');
@@ -528,79 +544,86 @@ static void gokuro(FILE *in, FILE *out) {
         buffer_put_until_char(&line_buf, macro_body, '\0');
         buffer_copy(&line_buf, &temp_buf);
         buffer_put_char(&line_buf, '\0');
-      } else {
-        // parse the arguments.
-        char *args[9] = {0}; // 9 = max bumber of the positions of arguments  ($1...$9)
-        args[0] = name_end + 1; // 1 = strlen("(")
-        uint32_t currentIndex = 1;
-        for (char *c = args[0]; c < macro_end; c++) {
-          if (currentIndex == 9) {
-            break;
-          }
-          if (*c == ',') {
-            args[currentIndex] = c + 1; // 1 = strlen(",")
-            currentIndex++;
-            continue;
-          }
-          if ((*c == '\\') && (*(c + 1) == ',')) {
-            // escaped comma.
-            c++;
-            continue;
-          }
-        }
-
-        // expand the macro on temp_buf (we cannot modify line_buf because args depends on it).
-        buffer_clear(&temp_buf);
-        buffer_put_until_ptr(&temp_buf, line_begin, macro_begin);
-        char *write_from = macro_body;
-        char *c = macro_body;
-        while (true) {
-          if (*c == '\0') {
-            buffer_put_until_char(&temp_buf, write_from, '\0');
-            break;
-          }
-          if (*c != '$') {
-            c++;
-            continue;
-          }
-          // If *c != '\0', we can read *(c + 1).
-          c++;
-          if (!is_digit(*c)) {
-            continue;
-          }
-
-          // argument found in the macro body.
-          buffer_put_until_ptr(&temp_buf, write_from, c - 1);
-          write_from = c + 1;
-          uint32_t arg_index = (uint32_t)(*c - '0');
-          if (arg_index == 0) {
-            // The replacement is the whole text in the brackets.
-            char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
-            buffer_put_until_ptr(&temp_buf, args[0], until);
-          } else if (args[arg_index - 1] != NULL) {
-            if ((arg_index == 9) || args[arg_index] == NULL) {
-              // the last argument
-              char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
-              buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
-            } else {
-              char *until = args[arg_index] - 1; // 1 = strlen(",")
-              buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
-            }
-          }
-          c++;
-        }
-
-        // copy the expanded line to line_buf.
-        buffer_put_until_char(&temp_buf, macro_end, '\0'); // 1 = strlen("\0")
-        buffer_clear(&line_buf);
-        buffer_copy(&line_buf, &temp_buf);
-        buffer_put_char(&line_buf, '\0');
+        continue;
       }
+
+      // macro with arguments.
+      // parse the arguments.
+      char *args[9] = {0}; // 9 = max bumber of the positions of arguments  ($1...$9)
+      args[0] = name_end + 1; // 1 = strlen("(")
+      uint32_t currentIndex = 1;
+      for (char *c = args[0]; c < macro_end; c++) {
+        if (currentIndex == 9) {
+          break;
+        }
+        if (*c == ',') {
+          args[currentIndex] = c + 1; // 1 = strlen(",")
+          currentIndex++;
+          continue;
+        }
+        if ((*c == '\\') && (*(c + 1) == ',')) {
+          // escaped comma.
+          c++;
+          continue;
+        }
+      }
+
+      // expand the macro on temp_buf (we cannot modify line_buf because args depends on it).
+      buffer_clear(&temp_buf);
+      buffer_put_until_ptr(&temp_buf, line_begin, macro_begin);
+      char *write_from = macro_body;
+      char *c = macro_body;
+      while (true) {
+        if (*c == '\0') {
+          buffer_put_until_char(&temp_buf, write_from, '\0');
+          break;
+        }
+        if (*c != '$') {
+          c++;
+          continue;
+        }
+        // If *c != '\0', we can read *(c + 1).
+        c++;
+        if (!is_digit(*c)) {
+          continue;
+        }
+
+        // argument found in the macro body.
+        buffer_put_until_ptr(&temp_buf, write_from, c - 1);
+        write_from = c + 1;
+        uint32_t arg_index = (uint32_t)(*c - '0');
+        if (arg_index == 0) {
+          // The replacement is the whole text in the brackets.
+          char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
+          buffer_put_until_ptr(&temp_buf, args[0], until);
+        } else if (args[arg_index - 1] != NULL) {
+          if ((arg_index == 9) || args[arg_index] == NULL) {
+            // the last argument
+            char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
+            buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
+          } else {
+            char *until = args[arg_index] - 1; // 1 = strlen(",")
+            buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
+          }
+        }
+        c++;
+      }
+
+      // copy the expanded line to line_buf.
+      buffer_put_until_char(&temp_buf, macro_end, '\0');
+      buffer_clear(&line_buf);
+      buffer_copy(&line_buf, &temp_buf);
+      buffer_put_char(&line_buf, '\0');
     }
 
-    fputs(line_begin, out);
-    fputs("\n", out);
-    hash_map_clear(&local_macro_map);
+    if (line_type == LINE_TYPE_NORMAL) {
+      fputs(line_buf.data, out);
+      fputs("\n", out);
+    }
+
+    if (line_type != LINE_TYPE_LOCAL_MACRO_DEFINITION) {
+      hash_map_clear(&local_macro_map);
+    }
   }
 
   buffer_free(&global_macro_bodies);
