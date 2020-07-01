@@ -6,9 +6,9 @@
 
 {{{macro(AAA,BBB)}}}
 
-#+A: A
-#+B: B
-#+C: C
+#+MACRO_LOCAL: A A
+#+MACRO_LOCAL: B B
+#+MACRO_LOCAL: C C
 {{{macro(0,9)}}}
 
 {{{macro(AAA,BBB)}}}

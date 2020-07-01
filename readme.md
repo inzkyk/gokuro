@@ -1,27 +1,53 @@
-# gokuro_c
+# gokuro
 
-gokuro_c is a C inplementation of gokuro language.
+gokuro is a simple macro language.
 
-gokuro language is a simple macro language used to write articles and books of [https://inzkyk.xyz/](https://inzkyk.xyz/).
+This repository has several implementations of gokuro.
 
-## building
+## build
 
-```
-$ gcc main.c
-$ clang main.c
-$ cl main.c
-```
-
-## usage
+c
 
 ```
-$ gokuro_c < YOUR_FILE
+$ gcc gokuro.c -o gokuro_c.exe -O3
+$ clang gokuro.c -o gokuro_c.exe -O3
+$ cl gokuro.c /Ox /link /out:gokuro_c.exe
 ```
 
-## testing
+go
+
+```
+$ go build -o gokuro_go.exe gokuro.go
+```
+
+nodejs
+
+(build not required)
+
+## run
+
+c
+
+```
+$ gokuro_c.exe < INPUT_FILE
+```
+
+go
+
+```
+$ gokuro_go.exe < INPUT_FILE
+```
+
+nodejs
+
+```
+$ node gokuro.js < INPUT_FILE
+```
+
+## test
 
 (windows only)
 
 ```
-$ .\build.bat diff
+$ .\build.bat all
 ```
