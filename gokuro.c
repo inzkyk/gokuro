@@ -570,7 +570,6 @@ MACRO_EXPANSION:
 
       // expand the macro on temp_buf (we cannot modify line_buf because args depends on it).
       buffer_clear(&temp_buf);
-      buffer_put_until_ptr(&temp_buf, line_begin, macro_begin);
       char *write_from = macro_body;
       char *c = macro_body;
       while (true) {
@@ -609,9 +608,9 @@ MACRO_EXPANSION:
         c++;
       }
 
-      // copy the expanded line to line_buf.
+      // copy the expanded macro to line_buf.
       buffer_put_until_char(&temp_buf, macro_end, '\0');
-      buffer_clear(&line_buf);
+      line_buf.used = (uint32_t)(macro_begin - line_begin);
       buffer_copy(&line_buf, &temp_buf);
       buffer_put_char(&line_buf, '\0');
     }
