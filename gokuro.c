@@ -11,6 +11,7 @@
 #endif
 
 #define PANIC() do { exit(1); } while(0)
+#define BUFFER_INITIAL_SIZE 1024 * 4
 #define MEMORY_MAX_SIZE 1024 * 1024 * 128
 
 ///// util functions
@@ -305,44 +306,27 @@ static void buffer_read_all(buffer_t *buf, FILE *f) {
     read_size *= 2;
   }
 }
+
 ///// buffer end
 
-static void gokuro(FILE *in, FILE *out) {
+static void gokuro(const char *input, buffer_t *output_buf) {
   hash_map_t global_macro_map = {0};
   hash_map_t local_macro_map = {0};
   hash_map_init(&global_macro_map, 128);
   hash_map_init(&local_macro_map, 128);
 
-  const uint32_t buffer_initial_size = 4 * 1024;
-  buffer_t input_buf = {0};
   buffer_t line_buf = {0};
   buffer_t temp_buf = {0};
   buffer_t global_macro_bodies = {0};
   buffer_t local_macro_bodies = {0};
 
-  buffer_reserve(&input_buf, buffer_initial_size);
-  buffer_reserve(&line_buf, buffer_initial_size);
-  buffer_reserve(&temp_buf, buffer_initial_size);
-  buffer_reserve(&global_macro_bodies, buffer_initial_size);
-  buffer_reserve(&local_macro_bodies, buffer_initial_size);
-
-  { // load input to input_buf
-    buffer_read_all(&input_buf, in);
-    if (input_buf.used == 0) {
-      // nothing to output.
-      return;
-    }
-
-    char last_char = *(input_buf.data + input_buf.used - 1);
-    if (last_char != '\n') {
-      // add a newline to input.
-      buffer_put_char(&input_buf, '\n');
-    }
-    buffer_put_char(&input_buf, '\0');
-  }
+  buffer_reserve(&line_buf, BUFFER_INITIAL_SIZE);
+  buffer_reserve(&temp_buf, BUFFER_INITIAL_SIZE);
+  buffer_reserve(&global_macro_bodies, BUFFER_INITIAL_SIZE);
+  buffer_reserve(&local_macro_bodies, BUFFER_INITIAL_SIZE);
 
   // the mainloop.
-  char *input_index = input_buf.data;
+  const char *input_index = input;
   while (true) {
     if (*input_index == '\0') {
       break;
@@ -616,8 +600,8 @@ MACRO_EXPANSION:
     }
 
     if (line_type == LINE_TYPE_NORMAL) {
-      fputs(line_buf.data, out);
-      fputs("\n", out);
+      buffer_put(output_buf, line_buf.data, line_buf.used - 1);
+      buffer_put_char(output_buf, '\n');
     }
 
     if (line_type != LINE_TYPE_LOCAL_MACRO_DEFINITION) {
@@ -625,14 +609,13 @@ MACRO_EXPANSION:
     }
   }
 
+  buffer_put_char(output_buf, '\0');
   buffer_free(&global_macro_bodies);
   buffer_free(&local_macro_bodies);
   hash_map_free(&global_macro_map);
   hash_map_free(&local_macro_map);
-  buffer_free(&input_buf);
   buffer_free(&line_buf);
   buffer_free(&temp_buf);
-  fflush(out);
 }
 
 static int init_io(FILE *in, FILE *out) {
@@ -665,5 +648,30 @@ int main() {
     return 1;
   }
 
-  gokuro(stdin, stdout);
+  buffer_t input_buf = {0};
+  buffer_reserve(&input_buf, BUFFER_INITIAL_SIZE);
+  buffer_read_all(&input_buf, stdin);
+
+  if (input_buf.used == 0) {
+    // nothing to output.
+    return 0;
+  }
+
+  char last_char = *(input_buf.data + input_buf.used - 1);
+  if (last_char != '\n') {
+    // add a newline to input.
+    buffer_put_char(&input_buf, '\n');
+  }
+
+  buffer_put_char(&input_buf, '\0');
+
+  buffer_t output_buf = {0};
+  buffer_reserve(&output_buf, input_buf.used);
+
+  gokuro(input_buf.data, &output_buf);
+  fputs(output_buf.data, stdout);
+  fflush(stdout);
+
+  buffer_free(&input_buf);
+  buffer_free(&output_buf);
 }
