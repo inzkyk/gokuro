@@ -24,6 +24,16 @@ function parseMacroArgs(s) {
     return answer
 }
 
+const regexDollar = RegExp("\\$", "g")
+function escapeDollar(s) {
+    return s.replace(regexDollar, "@$@")
+}
+
+const regexEscapedDollar = RegExp("@\\$@", "g")
+function unescapeDollar(s) {
+    return s.replace(regexEscapedDollar, "$")
+}
+
 function gokuro(inputStream, outputStream) {
     const globalMacroDefinition = /^#\+MACRO: (.*?) (.*)$/
     const localMacroDefinition = /^#\+MACRO_LOCAL: (.*?) (.*)$/
@@ -85,7 +95,7 @@ function gokuro(inputStream, outputStream) {
             }
 
             // macro with arguments
-            macroCallMatch[2] = macroCallMatch[2].replace(RegExp("\\$", "g"), "@$@")
+            macroCallMatch[2] = escapeDollar(macroCallMatch[2])
             const args = parseMacroArgs(macroCallMatch[2])
             body = body.replace(RegExp("\\$0", "g"), macroCallMatch[2])
             for (let j = 0; j < args.length; j++) {
@@ -97,7 +107,7 @@ function gokuro(inputStream, outputStream) {
                 body = body.replace(RegExp(dollar_num, "g"), "")
             }
             line = line.replace(macroCallMatch[0], body)
-            line = line.replace(RegExp("@\\$@", "g"), "$")
+            line = unescapeDollar(line)
         }
 
         if (lineType == LINE_TYPE_NORMAL) {
