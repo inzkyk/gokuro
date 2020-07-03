@@ -15,7 +15,7 @@
 #define MEMORY_MAX_SIZE 1024 * 1024 * 128
 
 ///// util functions
-static bool begin_with(const char *a, const char *b) {
+static inline bool begin_with(const char *a, const char *b) {
   uint32_t i = 0;
   while (true) {
     if (b[i] == '\0') {
@@ -30,11 +30,11 @@ static bool begin_with(const char *a, const char *b) {
   }
 }
 
-static bool is_digit(char c) {
+static inline bool is_digit(char c) {
   return '0' <= c && c <= '9';
 }
 
-static uint32_t hash_32(void *data_begin, void *data_end) {
+static inline uint32_t hash_32(void *data_begin, void *data_end) {
   uint32_t hash = 2147483647u;
   for (unsigned char *c = (unsigned char *)(data_begin); c < (unsigned char *)data_end; c++) {
     hash = hash * 33 + *c;
@@ -51,7 +51,7 @@ typedef struct {
   uint32_t capacity;
 } hash_map_t;
 
-static void hash_map_init(hash_map_t *hm, uint32_t initial_capacity) {
+static inline void hash_map_init(hash_map_t *hm, uint32_t initial_capacity) {
   if (2 * sizeof(uint32_t) * initial_capacity > MEMORY_MAX_SIZE) {
     fprintf(stderr, "too much memory requested.\n");
     PANIC();
@@ -73,7 +73,7 @@ static void hash_map_init(hash_map_t *hm, uint32_t initial_capacity) {
   }
 }
 
-static void hash_map_put(hash_map_t *hm, uint32_t key, uint32_t item) {
+static inline void hash_map_put(hash_map_t *hm, uint32_t key, uint32_t item) {
   uint32_t idx = key % hm->capacity;
   while (true) {
     if (hm->keys[idx] == UINT32_MAX) {
@@ -143,7 +143,7 @@ static void hash_map_put(hash_map_t *hm, uint32_t key, uint32_t item) {
   free(item_buf);
 }
 
-static uint32_t hash_map_get(hash_map_t *hm, uint32_t key) {
+static inline uint32_t hash_map_get(hash_map_t *hm, uint32_t key) {
   uint32_t idx = key % hm->capacity;
   while (true) {
     if (hm->keys[idx] == key) {
@@ -156,7 +156,7 @@ static uint32_t hash_map_get(hash_map_t *hm, uint32_t key) {
   }
 }
 
-static void hash_map_clear(hash_map_t *hm) {
+static inline void hash_map_clear(hash_map_t *hm) {
   if (hm->size == 0) {
     return;
   }
@@ -168,7 +168,7 @@ static void hash_map_clear(hash_map_t *hm) {
   hm->size = 0;
 }
 
-static void hash_map_free(hash_map_t *hm) {
+static inline void hash_map_free(hash_map_t *hm) {
   free(hm->keys);
   free(hm->items);
 }
@@ -181,14 +181,14 @@ typedef struct {
   uint32_t used;
 } buffer_t;
 
-static void buffer_free(buffer_t *buf) {
+static inline void buffer_free(buffer_t *buf) {
   free(buf->data);
   buf->data = NULL;
   buf->used = 0;
   buf->capacity = 0;
 }
 
-static void buffer_reserve(buffer_t *buf, uint32_t capacity) {
+static inline void buffer_reserve(buffer_t *buf, uint32_t capacity) {
   if (buf->capacity >= capacity) {
     return;
   }
@@ -208,7 +208,7 @@ static void buffer_reserve(buffer_t *buf, uint32_t capacity) {
   buf->capacity = new_capacity;
 }
 
-static void buffer_put(buffer_t *buf, const char *data, uint32_t data_size) {
+static inline void buffer_put(buffer_t *buf, const char *data, uint32_t data_size) {
   if (data_size == 0) {
     return;
   }
@@ -222,13 +222,13 @@ static void buffer_put(buffer_t *buf, const char *data, uint32_t data_size) {
   buf->used += data_size;
 }
 
-static void buffer_put_char(buffer_t *buf, char c) {
+static inline void buffer_put_char(buffer_t *buf, char c) {
   buffer_reserve(buf, buf->used + 1);
   buf->data[buf->used] = c;
   buf->used++;
 }
 
-static void buffer_put_until_ptr(buffer_t *buf, const char *data, const char *data_end) {
+static inline void buffer_put_until_ptr(buffer_t *buf, const char *data, const char *data_end) {
   bool valid = data <= data_end;
   if (!valid) {
     return;
@@ -243,7 +243,7 @@ static void buffer_put_until_ptr(buffer_t *buf, const char *data, const char *da
   }
 }
 
-static void buffer_put_until_ptr_escaping_comma(buffer_t *buf, const char *data, const char *data_end) {
+static inline void buffer_put_until_ptr_escaping_comma(buffer_t *buf, const char *data, const char *data_end) {
   bool valid = data <= data_end;
   if (!valid) {
     return;
@@ -264,7 +264,7 @@ static void buffer_put_until_ptr_escaping_comma(buffer_t *buf, const char *data,
   }
 }
 
-static void buffer_put_until_char(buffer_t *buf, const char *data, char c) {
+static inline void buffer_put_until_char(buffer_t *buf, const char *data, char c) {
   for (uint32_t i = 0; data[i] != c; i++) {
     if (buf->used == buf->capacity) {
       buffer_reserve(buf, 2 * buf->capacity);
@@ -274,15 +274,15 @@ static void buffer_put_until_char(buffer_t *buf, const char *data, char c) {
   }
 }
 
-static void buffer_clear(buffer_t *buf) {
+static inline void buffer_clear(buffer_t *buf) {
   buf->used = 0;
 }
 
-static void buffer_copy(buffer_t *buf1, buffer_t *buf2) {
+static inline void buffer_copy(buffer_t *buf1, buffer_t *buf2) {
   buffer_put(buf1, buf2->data, buf2->used);
 }
 
-static void buffer_read_all(buffer_t *buf, FILE *f) {
+static inline void buffer_read_all(buffer_t *buf, FILE *f) {
   uint32_t read_size = 1024 * 4;
 
   while (true) {
