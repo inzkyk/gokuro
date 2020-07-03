@@ -34,7 +34,7 @@ exit /b
 
 :TestC
 IF NOT EXIST test\temp mkdir test\temp
-clang gokuro.c -o gokuro_c.exe -Weverything -Werror
+clang gokuro.c -o gokuro_c.exe -Weverything -Werror -std=c99
 for %%f in (%test_files%) do (
 gokuro_c.exe < test\input\%%f > test\temp\%%f
 diff test\expected\%%f test\temp\%%f
