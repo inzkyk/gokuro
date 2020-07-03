@@ -1,5 +1,3 @@
-'use strict'
-
 function parseMacroArgs(s) {
     let argIdx = 0
     let argBegin = 0
