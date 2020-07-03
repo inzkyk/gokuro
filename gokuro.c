@@ -274,15 +274,6 @@ static void buffer_put_until_char(buffer_t *buf, const char *data, char c) {
   }
 }
 
-static void buffer_shrink_to(buffer_t *buf, const char *to) {
-  bool valid = (buf->data <= to) && (to <= buf->data + buf->used);
-  if (!valid) {
-    return;
-  }
-
-  buf->used = (uint32_t)(to - buf->data);
-}
-
 static void buffer_clear(buffer_t *buf) {
   buf->used = 0;
 }
@@ -512,7 +503,7 @@ MACRO_EXPANSION:
 
       if (macro_body == NULL) {
         // the macro is undefined: delete the call.
-        buffer_shrink_to(&line_buf, macro_begin);
+        line_buf.used = (uint32_t)(macro_begin - line_buf.data);
         buffer_put_until_char(&line_buf, macro_end, '\n');
         buffer_put_char(&line_buf, '\n');
         continue;
@@ -524,7 +515,7 @@ MACRO_EXPANSION:
         buffer_put_until_char(&temp_buf, macro_end, '\n');
 
         // line = line[:macro_begin] + macro_body + line[maro_end:]
-        buffer_shrink_to(&line_buf, macro_begin);
+        line_buf.used = (uint32_t)(macro_begin - line_buf.data);
         buffer_put_until_char(&line_buf, macro_body, '\0');
         buffer_copy(&line_buf, &temp_buf);
         buffer_put_char(&line_buf, '\n');
