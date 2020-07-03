@@ -335,7 +335,7 @@ static void gokuro(const char *input, buffer_t *output_buf) {
     // read next line to line_buf.
     buffer_clear(&line_buf);
     buffer_put_until_char(&line_buf, input_index, '\n');
-    buffer_put_char(&line_buf, '\0');
+    buffer_put_char(&line_buf, '\n');
     input_index += line_buf.used;
 
     enum LINE_TYPE {
@@ -353,7 +353,7 @@ static void gokuro(const char *input, buffer_t *output_buf) {
       // line_begin and line_end can not be precomputed because
       // line_buf gets modified in macro expansion.
       char *line_begin = line_buf.data;
-      char *line_end = line_buf.data + line_buf.used - 1; // 1 = strlen("\0")
+      char *line_end = line_buf.data + line_buf.used - 1; // 1 = strlen("\n")
 
       // shortcut
       if (*line_begin != '#') {
@@ -364,7 +364,7 @@ static void gokuro(const char *input, buffer_t *output_buf) {
       if (begin_with(line_begin, "#+MACRO: ")) {
         const uint32_t name_offset = 9; // 9 = strlen("#+MACRO: ")
 
-        if (*(line_begin + name_offset) == '\0') {
+        if (*(line_begin + name_offset) == '\n') {
           // This line does not define a global macro.
           break;
         }
@@ -378,7 +378,7 @@ static void gokuro(const char *input, buffer_t *output_buf) {
               name_end = c;
               break;
             }
-            if (*c == '\0') {
+            if (*c == '\n') {
               // The name is empty: this line does not define a global macro.
               break;
             }
@@ -390,7 +390,7 @@ static void gokuro(const char *input, buffer_t *output_buf) {
           line_type = LINE_TYPE_GLOBAL_MACRO_DEFINITION;
 
           // save this macro.
-          buffer_put_until_char(&global_macro_bodies, name_end + 1, '\0'); // 1 = strlen(" ")
+          buffer_put_until_char(&global_macro_bodies, name_end + 1, '\n'); // 1 = strlen(" ")
           buffer_put_char(&global_macro_bodies, '\0');
           uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
           uint32_t body_offset = global_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
@@ -411,7 +411,7 @@ static void gokuro(const char *input, buffer_t *output_buf) {
               name_end = c;
               break;
             }
-            if (*c == '\0') {
+            if (*c == '\n') {
               // This line does not define a global macro.
               break;
             }
@@ -423,7 +423,7 @@ static void gokuro(const char *input, buffer_t *output_buf) {
           line_type = LINE_TYPE_LOCAL_MACRO_DEFINITION;
 
           // save this macro.
-          buffer_put_until_char(&local_macro_bodies, name_end + 1, '\0'); // 1 = strlen(" ")
+          buffer_put_until_char(&local_macro_bodies, name_end + 1, '\n'); // 1 = strlen(" ")
           buffer_put_char(&local_macro_bodies, '\0');
           uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
           uint32_t body_offset = local_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
@@ -513,21 +513,21 @@ MACRO_EXPANSION:
       if (macro_body == NULL) {
         // the macro is undefined: delete the call.
         buffer_shrink_to(&line_buf, macro_begin);
-        buffer_put_until_char(&line_buf, macro_end, '\0');
-        buffer_put_char(&line_buf, '\0');
+        buffer_put_until_char(&line_buf, macro_end, '\n');
+        buffer_put_char(&line_buf, '\n');
         continue;
       }
 
       if (is_constant) {
         // temp_buf = line[macro_end:]
         buffer_clear(&temp_buf);
-        buffer_put_until_char(&temp_buf, macro_end, '\0');
+        buffer_put_until_char(&temp_buf, macro_end, '\n');
 
         // line = line[:macro_begin] + macro_body + line[maro_end:]
         buffer_shrink_to(&line_buf, macro_begin);
         buffer_put_until_char(&line_buf, macro_body, '\0');
         buffer_copy(&line_buf, &temp_buf);
-        buffer_put_char(&line_buf, '\0');
+        buffer_put_char(&line_buf, '\n');
         continue;
       }
 
@@ -593,15 +593,14 @@ MACRO_EXPANSION:
       }
 
       // copy the expanded macro to line_buf.
-      buffer_put_until_char(&temp_buf, macro_end, '\0');
+      buffer_put_until_char(&temp_buf, macro_end, '\n');
       line_buf.used = (uint32_t)(macro_begin - line_begin);
       buffer_copy(&line_buf, &temp_buf);
-      buffer_put_char(&line_buf, '\0');
+      buffer_put_char(&line_buf, '\n');
     }
 
     if (line_type == LINE_TYPE_NORMAL) {
-      buffer_put(output_buf, line_buf.data, line_buf.used - 1);
-      buffer_put_char(output_buf, '\n');
+      buffer_copy(output_buf, &line_buf);
     }
 
     if (line_type != LINE_TYPE_LOCAL_MACRO_DEFINITION) {
