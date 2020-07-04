@@ -424,7 +424,7 @@ static void gokuro(const char *input, buffer_t *output_buf) {
         }
       }
 
-MACRO_EXPANSION:
+MACRO_EXPANSION:;
       // expand the last macro (so that nested calls are treated properly)
       const uint32_t bbb_offset = 3; // 3 = strlen("{{{") or strlen("}}}")
 
