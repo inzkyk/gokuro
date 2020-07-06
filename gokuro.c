@@ -501,8 +501,13 @@ MACRO_EXPANSION:;
         }
       }
 
-      if (macro_body == NULL) {
-        // the macro is undefined: delete the call.
+      bool macro_defined = (macro_body != NULL);
+      bool macro_args_ended_properly =
+        (is_constant)
+        || (*(macro_end - bbb_offset - 1) == ')'); // 1 = len(")")
+
+      if (!macro_defined || !macro_args_ended_properly) {
+        // delete the call.
         line_buf.used = (uint32_t)(macro_begin - line_buf.data);
         buffer_put_until_char(&line_buf, macro_end, '\n');
         buffer_put_char(&line_buf, '\n');

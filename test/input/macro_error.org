@@ -23,3 +23,5 @@
 {{{verbatim2((),())}}}
 
 {{{verbatim({{}{}})}}}
+
+{{{verbatim(FOO}}}
