@@ -2,26 +2,26 @@
 #+MACRO: verbatim $0
 #+MACRO: verbatim2 $1 $2
 
-{{{hoge}}}
+<<<hoge>>>
 
-{{{
+<<<
 
-}}}
+>>>
 
-{{{hoge{{{value}}}}}}
+<<<hoge<<<value>>>>>>
 
-{{{value}}}}}}
+<<<value>>>>>>
 
-{{{hoge(fugafuga}}}
+<<<hoge(fugafuga>>>
 
-{{{value(1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1)}}}
+<<<value(1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1)>>>
 
-{{{verbatim(,,,,,)}}}
+<<<verbatim(,,,,,)>>>
 
-{{{verbatim2(,,,,,)}}}
+<<<verbatim2(,,,,,)>>>
 
-{{{verbatim2((),())}}}
+<<<verbatim2((),())>>>
 
-{{{verbatim({{}{}})}}}
+<<<verbatim(<<><>>)>>>
 
-{{{verbatim(FOO}}}
+<<<verbatim(FOO>>>

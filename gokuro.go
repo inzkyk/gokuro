@@ -54,7 +54,7 @@ func unquoteDollar(s string) string {
 
 var regexGlobalMacroDef = regexp.MustCompile(`^#\+MACRO: ([^\s]+) (.*)\n$`)
 var regexLocalMacroDef = regexp.MustCompile(`^#\+MACRO_LOCAL: ([^\s]+) (.*)\n$`)
-var regexMacroCall = regexp.MustCompile(`^(.+?)(?:(\(.*\)))?$`)
+var regexMacroCall = regexp.MustCompile(`<<<(.+?)(?:(\(.*\)))?>>>`)
 
 func gokuro(in io.Reader, out io.Writer) {
 	r := bufio.NewReaderSize(in, 1024*16)
@@ -101,21 +101,32 @@ func gokuro(in io.Reader, out io.Writer) {
 
 			// process the last macro call (so that nested calls are treated properly).
 			// locate the last macro call
-			lastCallBegin := strings.LastIndex(line, "{{{")
-			if lastCallBegin == -1 {
+			var matchMacroCall []string = nil
+			lastCallBegin := -1
+			num_consective_open := 0
+			for i := len(line) - 1; i >= 0; i-- {
+				if line[i] != '<' {
+					continue
+				}
+				num_consective_open = num_consective_open + 1
+				if num_consective_open < 3 {
+					continue
+				}
+				matchMacroCall = regexMacroCall.FindStringSubmatch(line[i:])
+				if matchMacroCall != nil {
+					lastCallBegin = i
+					break
+				}
+			}
+
+			if matchMacroCall == nil {
 				// no more macro calls.
 				break
 			}
-			idx := strings.Index(line[lastCallBegin:], "}}}")
-			if idx == -1 {
-				// the macro call not matched.
-				break
-			}
-			lastCallEnd := lastCallBegin + idx + len("}}}")
-			lastCall := line[lastCallBegin+len("{{{") : lastCallEnd-len("}}}")]
+
+			lastCallEnd := lastCallBegin + len(matchMacroCall[0])
 
 			// look up the definition of the macro (local macro first).
-			matchMacroCall := regexMacroCall.FindStringSubmatch(lastCall)
 			macroName := matchMacroCall[1]
 			macroBody, ok := localMacros[macroName]
 			if !ok {

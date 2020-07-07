@@ -426,7 +426,7 @@ static void gokuro(const char *input, buffer_t *output_buf) {
 
 MACRO_EXPANSION:;
       // expand the last macro (so that nested calls are treated properly)
-      const uint32_t bbb_offset = 3; // 3 = strlen("{{{") or strlen("}}}")
+      const uint32_t bbb_offset = 3; // 3 = strlen("<<<") or strlen(">>>")
 
       char *macro_begin = NULL;
       char *macro_end = NULL;
@@ -434,10 +434,10 @@ MACRO_EXPANSION:;
         uint32_t num_consecutive_open = 0;
         uint32_t num_consecutive_close = 0;
         for (char *c = line_end - macro_offset; line_begin <= c; c--) {
-          if (*c != '{' && *c != '}') {
+          if (*c != '<' && *c != '>') {
             num_consecutive_open = 0;
             num_consecutive_close = 0;
-          } else if (*c == '{') {
+          } else if (*c == '<') {
             num_consecutive_open++;
             num_consecutive_close = 0;
             if (num_consecutive_open == bbb_offset) {
@@ -445,7 +445,7 @@ MACRO_EXPANSION:;
               break;
             }
             continue;
-          } else if (*c == '}') {
+          } else if (*c == '>') {
             num_consecutive_open = 0;
             num_consecutive_close++;
             if (num_consecutive_close >= bbb_offset) {
@@ -457,10 +457,15 @@ MACRO_EXPANSION:;
           }
         }
 
-        if (macro_begin == NULL || macro_end == NULL) {
+        if (macro_begin == NULL) {
           // no (more) macro to expand.
           line_type = LINE_TYPE_NORMAL;
           break;
+        }
+
+        if (macro_end == NULL) {
+          macro_offset = (uint32_t)(line_end - macro_begin);
+          continue;
         }
       }
 
@@ -476,7 +481,7 @@ MACRO_EXPANSION:;
             break;
           }
 
-          if (*c == '}') {
+          if (*c == '>') {
             is_constant = true;
             break;
           }

@@ -1,0 +1,5 @@
+#+MACRO: value 1
+#+MACRO: left <
+#+MACRO: right >
+
+<<<left>>><<<left>>><<<left>>>value<<<right>>><<<right>>><<<right>>>

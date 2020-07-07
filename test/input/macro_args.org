@@ -3,18 +3,18 @@
 #+MACRO: macro5 ($1,$2,$3,$4,$5)
 #+MACRO: macro9 $1-$2-$3-$4-$5-$6-$7-$8-$9
 
-text {{{verbatim(text)}}} text
+text <<<verbatim(text)>>> text
 
-text {{{verbatim()}}} text
+text <<<verbatim()>>> text
 
-text {{{verbatim(,)}}} text
+text <<<verbatim(,)>>> text
 
-text {{{paren(some text)}}} text
+text <<<paren(some text)>>> text
 
-text {{{macro5(1,2,3,4,5)}}} text
+text <<<macro5(1,2,3,4,5)>>> text
 
-text {{{macro5(a,bb,ccc,dddd,eeeee,ffffff)}}} text
+text <<<macro5(a,bb,ccc,dddd,eeeee,ffffff)>>> text
 
-text {{{macro9(1,2,3,4,5,6,7,8,9)}}} text
+text <<<macro9(1,2,3,4,5,6,7,8,9)>>> text
 
-text {{{macro9(a,bb,ccc,dddd,eeeee,ffffff,ggggggg,hhhhhhhh,iiiiiiiii)}}} text
+text <<<macro9(a,bb,ccc,dddd,eeeee,ffffff,ggggggg,hhhhhhhh,iiiiiiiii)>>> text

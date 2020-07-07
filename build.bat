@@ -1,6 +1,6 @@
 @echo off
 
-set test_files=empty.org hello.org no_newline.org long_line.org multi_line.org macro.org macro_error.org macro_args.org macro_dollar.org macro_escaped_comma.org macro_local.org macro_defined_by_macro.org
+set test_files=empty.org hello.org no_newline.org long_line.org multi_line.org macro.org macro_error.org macro_args.org macro_dollar.org macro_escaped_comma.org macro_local.org macro_defined_by_macro.org macro_combined.org
 
 if "%~1" == "all" (
 call :TestC

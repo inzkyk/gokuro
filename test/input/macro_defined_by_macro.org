@@ -1,11 +1,11 @@
 #+MACRO: global #+MACRO: $1 $2
 
-{{{global(macro1,Hello world!)}}}
-{{{macro1}}}
+<<<global(macro1,Hello world!)>>>
+<<<macro1>>>
 
-#+MACRO: text {{{LEFT}}}$0{{{RIGHT}}}
+#+MACRO: text <<<LEFT>>>$0<<<RIGHT>>>
 #+MACRO: local #+MACRO_LOCAL: $1 $2
 
-{{{local(LEFT,>)}}}
-{{{local(RIGHT,<)}}}
-{{{text(Hello world!)}}}
+<<<local(LEFT,>)>>>
+<<<local(RIGHT,<)>>>
+<<<text(Hello world!)>>>

@@ -1,6 +1,6 @@
 #+MACRO: macro $1|$2|$3
 #+MACRO: verbatim $0
 
->>>{{{macro(1\,2,3\,4,5\,6)}}}<<<
+>>><<<macro(1\,2,3\,4,5\,6)>>><<<
 
-{{{verbatim(\,)}}}
+<<<verbatim(\,)>>>

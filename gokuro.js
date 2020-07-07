@@ -35,9 +35,9 @@ function unescapeDollar(s) {
 }
 
 function gokuro(inputStream, outputStream) {
-    const globalMacroDefinition = /^#\+MACRO: (.*?) (.*)$/
-    const localMacroDefinition = /^#\+MACRO_LOCAL: (.*?) (.*)$/
-    const macroCall = /{{{(.+?)(?:\((.*?)\))?}}}/
+    const globalMacroDefinition = /^#\+MACRO: (.*?) (.*)\n$/
+    const localMacroDefinition = /^#\+MACRO_LOCAL: (.*?) (.*)\n$/
+    const macroCall = /<<<(.+?)(?:\((.*?)\))?>>>/
     let globalMacro = {}
     let localMacro = {}
 
@@ -46,6 +46,7 @@ function gokuro(inputStream, outputStream) {
     });
 
     reader.on('line', function (line) {
+        line = line + "\n"
 	const LINE_TYPE_NORMAL = 0
 	const LINE_TYPE_GLOBAL_MACRO_DEFINITION = 1
 	const LINE_TYPE_LOCAL_MACRO_DEFINITION = 2
@@ -59,6 +60,7 @@ function gokuro(inputStream, outputStream) {
                 globalMacro[name] = body
                 break
             }
+
             const localMacroMatch = line.match(localMacroDefinition)
             if (localMacroMatch != null) {
                 lineType = LINE_TYPE_LOCAL_MACRO_DEFINITION
@@ -68,14 +70,24 @@ function gokuro(inputStream, outputStream) {
                 break
             }
 
-            const lastCallBegin = line.lastIndexOf("{{{")
-            if (lastCallBegin == -1) {
-                // no more macro to expand.
-                break
+            let macroCallMatch = null
+            let num_consective_open = 0
+            for (j = line.length - 1; j--; j >= 0) {
+                if (line[j] != '<') {
+                    continue
+                }
+                num_consective_open = num_consective_open + 1
+                if (num_consective_open < 3) {
+                    continue
+                }
+                macroCallMatch = line.slice(j).match(macroCall)
+                if (macroCallMatch != null) {
+                    var lastCallBegin = j
+                    break
+                }
             }
-            const macroCallMatch = line.slice(lastCallBegin).match(macroCall)
+
             if (macroCallMatch == null) {
-                // "{{{" is found, but this line does not have a macro call.
                 break
             }
             const name = macroCallMatch[1]
@@ -90,7 +102,9 @@ function gokuro(inputStream, outputStream) {
             }
 
             if (isConstant) {
-                line = line.replace(macroCallMatch[0], body)
+                head = line.slice(0, lastCallBegin)
+                tail = line.slice(lastCallBegin).replace(macroCallMatch[0], body)
+                line = head + tail
                 continue
             }
 
@@ -111,7 +125,7 @@ function gokuro(inputStream, outputStream) {
         }
 
         if (lineType == LINE_TYPE_NORMAL) {
-            outputStream.write(line + "\n")
+            outputStream.write(line)
         }
 
         if (lineType != LINE_TYPE_LOCAL_MACRO_DEFINITION) {
