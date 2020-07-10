@@ -4,6 +4,8 @@ gokuro is a simple macro language.
 
 This repository has several implementations of gokuro.
 
+日本語の [解説](https://inzkyk.xyz/post/gokuro/) と [デモページ](https://inzkyk.xyz/post/gokuro_demo/) があります。
+
 ## build
 
 c
