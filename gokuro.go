@@ -54,7 +54,7 @@ func unquoteDollar(s string) string {
 
 var regexGlobalMacroDef = regexp.MustCompile(`^#\+MACRO: ([^\s]+) (.*)\n$`)
 var regexLocalMacroDef = regexp.MustCompile(`^#\+MACRO_LOCAL: ([^\s]+) (.*)\n$`)
-var regexMacroCall = regexp.MustCompile(`<<<(.+?)(?:(\(.*\)))?>>>`)
+var regexMacroCall = regexp.MustCompile(`<<<(.+?)(\((.*?)\))?>>>`)
 
 func gokuro(in io.Reader, out io.Writer) {
 	r := bufio.NewReaderSize(in, 1024*16)
@@ -133,31 +133,34 @@ func gokuro(in io.Reader, out io.Writer) {
 				// the macro is not defined locally, it may be a global macro.
 				macroBody = globalMacros[macroName]
 			}
-			if macroBody == "" {
-				// the macro is not defined.
+
+			macroDefined := macroBody != ""
+			if !macroDefined {
+				// delete the macro call.
 				line = line[:lastCallBegin] + line[lastCallEnd:]
 				continue
 			}
 
 			// calculate the replacement for the macro call.
-			if matchMacroCall[2] == "" {
-				// constant macro.
+			constantMacro := matchMacroCall[2] == ""
+			if constantMacro {
 				line = line[:lastCallBegin] + macroBody + line[lastCallEnd:]
-			} else {
-				// macro with arguments.
-				macroArgumentsText := quoteDollar(matchMacroCall[2][1 : len(matchMacroCall[2])-1]) // trim "(" and ")".
-				macroArguments := parseMacroArguments(macroArgumentsText)
-				macroBody = strings.ReplaceAll(macroBody, "$0", macroArgumentsText)
-				for i := 0; i < len(macroArguments); i++ {
-					target := "$" + strconv.Itoa(i+1)
-					macroBody = strings.ReplaceAll(macroBody, target, macroArguments[i])
-				}
-				for i := len(macroArguments); i <= 9; i++ {
-					target := "$" + strconv.Itoa(i+1)
-					macroBody = strings.ReplaceAll(macroBody, target, "")
-				}
-				line = line[:lastCallBegin] + unquoteDollar(macroBody) + line[lastCallEnd:]
+				continue
 			}
+
+			// macro with arguments
+			macroArgumentsText := quoteDollar(matchMacroCall[3])
+			macroArguments := parseMacroArguments(macroArgumentsText)
+			macroBody = strings.ReplaceAll(macroBody, "$0", macroArgumentsText)
+			for i := 0; i < len(macroArguments); i++ {
+				target := "$" + strconv.Itoa(i+1)
+				macroBody = strings.ReplaceAll(macroBody, target, macroArguments[i])
+			}
+			for i := len(macroArguments); i <= 9; i++ {
+				target := "$" + strconv.Itoa(i+1)
+				macroBody = strings.ReplaceAll(macroBody, target, "")
+			}
+			line = line[:lastCallBegin] + unquoteDollar(macroBody) + line[lastCallEnd:]
 		}
 
 		if lineType == LINE_TYPE_NORMAL {
