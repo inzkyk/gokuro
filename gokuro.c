@@ -34,9 +34,11 @@ static inline bool is_digit(char c) {
   return '0' <= c && c <= '9';
 }
 
-static inline uint32_t hash_32(void *data_begin, void *data_end) {
+static inline uint32_t hash_32(const void *data_begin, const void *data_end) {
   uint32_t hash = 2147483647u;
-  for (unsigned char *c = (unsigned char *)(data_begin); c < (unsigned char *)data_end; c++) {
+  const uint8_t *begin = (const uint8_t *)(data_begin);
+  const uint8_t *end = (const uint8_t *)(data_end);
+  for (const uint8_t *c = begin; c < end; c++) {
     hash = hash * 33 + *c;
   }
   return hash;
@@ -336,15 +338,17 @@ static void gokuro(const char *input, buffer_t *output_buf) {
     } line_type = LINE_TYPE_NORMAL;
 
     // macro_offset stores how far the macro expansion proceeds.
-    // loop invariant at the begenning of the loop below:
-    //   "line_buf does not have a macro from (line_end - macro_offset) to (line_end)."
     uint32_t macro_offset = 0;
 
     while (true) {
       // line_begin and line_end can not be precomputed because
       // line_buf gets modified in macro expansion.
       char *line_begin = line_buf.data;
-      char *line_end = line_buf.data + line_buf.used - 1; // 1 = strlen("\n")
+      char *line_end = line_buf.data + line_buf.used - 1; // 1 = len("\n")
+
+      // loop invariant:
+      //   "line_buf does not have a macro from (line_end - macro_offset)
+      //   to (line_end)."
 
       // shortcut
       if (*line_begin != '#') {
@@ -353,7 +357,7 @@ static void gokuro(const char *input, buffer_t *output_buf) {
 
       // Does this line define a global macro?
       if (begin_with(line_begin, "#+MACRO: ")) {
-        const uint32_t name_offset = 9; // 9 = strlen("#+MACRO: ")
+        const uint32_t name_offset = 9; // 9 = len("#+MACRO: ")
 
         if (*(line_begin + name_offset) == '\n') {
           // This line does not define a global macro.
@@ -381,19 +385,19 @@ static void gokuro(const char *input, buffer_t *output_buf) {
           line_type = LINE_TYPE_GLOBAL_MACRO_DEFINITION;
 
           // save this macro.
-          buffer_put_until_char(&global_macro_bodies, name_end + 1, '\n'); // 1 = strlen(" ")
+          uint32_t offset = global_macro_bodies.used;
+          uint32_t length = (uint32_t)(line_end - name_end) - 1; // 1 = len(" ")
+          buffer_put(&global_macro_bodies, name_end + 1, length); // 1 = len(" ")
           buffer_put_char(&global_macro_bodies, '\0');
-          uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
-          uint32_t body_offset = global_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
-          uint32_t macro_name_hash = hash_32(name_begin, name_end);
-          hash_map_put(&global_macro_map, macro_name_hash, body_offset);
+          uint32_t name_hash = hash_32(name_begin, name_end);
+          hash_map_put(&global_macro_map, name_hash, offset);
           break;
         }
       }
 
       // Does this line define a local macro?
       if (begin_with(line_begin, "#+MACRO_LOCAL: ")) {
-        char *name_begin = line_begin + 15; // 15 = strlen("#+MACRO_LOCAL: ")
+        char *name_begin = line_begin + 15; // 15 = len("#+MACRO_LOCAL: ")
         char *name_end = NULL;
         { // read the name of the macro.
           char *c = name_begin;
@@ -414,19 +418,19 @@ static void gokuro(const char *input, buffer_t *output_buf) {
           line_type = LINE_TYPE_LOCAL_MACRO_DEFINITION;
 
           // save this macro.
-          buffer_put_until_char(&local_macro_bodies, name_end + 1, '\n'); // 1 = strlen(" ")
+          uint32_t offset = local_macro_bodies.used;
+          uint32_t length = (uint32_t)(line_end - name_end) - 1; // 1 = len(" ")
+          buffer_put(&local_macro_bodies, name_end + 1, length); // 1 = len(" ")
           buffer_put_char(&local_macro_bodies, '\0');
-          uint32_t body_length = (uint32_t)(line_end - name_end) - 1; // 1 = strlen(" ")
-          uint32_t body_offset = local_macro_bodies.used - body_length - 1; // 1 = strlen("\0")
-          uint32_t macro_name_hash = hash_32(name_begin, name_end);
-          hash_map_put(&local_macro_map, macro_name_hash, body_offset);
+          uint32_t name_hash = hash_32(name_begin, name_end);
+          hash_map_put(&local_macro_map, name_hash, offset);
           break;
         }
       }
 
 MACRO_EXPANSION:;
       // expand the last macro (so that nested calls are treated properly)
-      const uint32_t bbb_offset = 3; // 3 = strlen("<<<") or strlen(">>>")
+      const uint32_t bbb_offset = 3; // 3 = len("<<<") or len(">>>")
 
       char *macro_begin = NULL;
       char *macro_end = NULL;
@@ -513,36 +517,36 @@ MACRO_EXPANSION:;
 
       if (!macro_defined || !macro_args_ended_properly) {
         // delete the call.
+        uint32_t tail_length = (uint32_t)(line_buf.data + line_buf.used - macro_end);
         line_buf.used = (uint32_t)(macro_begin - line_buf.data);
-        buffer_put_until_char(&line_buf, macro_end, '\n');
-        buffer_put_char(&line_buf, '\n');
+        buffer_put(&line_buf, macro_end, tail_length);
         continue;
       }
 
       if (is_constant) {
         // temp_buf = line[macro_end:]
         buffer_clear(&temp_buf);
-        buffer_put_until_char(&temp_buf, macro_end, '\n');
+        uint32_t length = (uint32_t)(line_buf.data + line_buf.used - macro_end);
+        buffer_put(&temp_buf, macro_end, length);
 
         // line = line[:macro_begin] + macro_body + line[maro_end:]
         line_buf.used = (uint32_t)(macro_begin - line_buf.data);
         buffer_put_until_char(&line_buf, macro_body, '\0');
         buffer_copy(&line_buf, &temp_buf);
-        buffer_put_char(&line_buf, '\n');
         continue;
       }
 
       // macro with arguments.
       // parse the arguments.
       char *args[9] = {0}; // 9 = max bumber of the positions of arguments  ($1...$9)
-      args[0] = name_end + 1; // 1 = strlen("(")
+      args[0] = name_end + 1; // 1 = len("(")
       uint32_t currentIndex = 1;
       for (char *c = args[0]; c < macro_end; c++) {
         if (currentIndex == 9) {
           break;
         }
         if (*c == ',') {
-          args[currentIndex] = c + 1; // 1 = strlen(",")
+          args[currentIndex] = c + 1; // 1 = len(",")
           currentIndex++;
           continue;
         }
@@ -578,15 +582,15 @@ MACRO_EXPANSION:;
         uint32_t arg_index = (uint32_t)(*c - '0');
         if (arg_index == 0) {
           // The replacement is the whole text in the brackets.
-          char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
+          char *until = macro_end - bbb_offset - 1; // 1 = len(")")
           buffer_put_until_ptr(&temp_buf, args[0], until);
         } else if (args[arg_index - 1] != NULL) {
           if ((arg_index == 9) || args[arg_index] == NULL) {
             // the last argument
-            char *until = macro_end - bbb_offset - 1; // 1 = strlen(")")
+            char *until = macro_end - bbb_offset - 1; // 1 = len(")")
             buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
           } else {
-            char *until = args[arg_index] - 1; // 1 = strlen(",")
+            char *until = args[arg_index] - 1; // 1 = len(",")
             buffer_put_until_ptr_escaping_comma(&temp_buf, args[arg_index - 1], until);
           }
         }
