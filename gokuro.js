@@ -24,16 +24,6 @@ function parseMacroArgs(s) {
     return answer
 }
 
-const regexDollar = RegExp("\\$", "g")
-function escapeDollar(s) {
-    return s.replace(regexDollar, "@$@")
-}
-
-const regexEscapedDollar = RegExp("@\\$@", "g")
-function unescapeDollar(s) {
-    return s.replace(regexEscapedDollar, "$")
-}
-
 function gokuro(inputStream, outputStream) {
     const globalMacroDefinition = /^#\+MACRO: (.*?) (.*)\n$/
     const localMacroDefinition = /^#\+MACRO_LOCAL: (.*?) (.*)\n$/
@@ -57,7 +47,7 @@ function gokuro(inputStream, outputStream) {
                 lineType = LINE_TYPE_GLOBAL_MACRO_DEFINITION
                 const name = globalMacroMatch[1]
                 const body = globalMacroMatch[2]
-                globalMacro[name] = body
+                globalMacro[name] = body.replaceAll(/(\$+)([^0-9])/g, "@$1@$2")
                 break
             }
 
@@ -66,7 +56,7 @@ function gokuro(inputStream, outputStream) {
                 lineType = LINE_TYPE_LOCAL_MACRO_DEFINITION
                 const name = localMacroMatch[1]
                 const body = localMacroMatch[2]
-                localMacro[name] = body
+                localMacro[name] = body.replaceAll(/(\$+)([^0-9])/g, "@$1@$2")
                 break
             }
 
@@ -102,6 +92,7 @@ function gokuro(inputStream, outputStream) {
             }
 
             if (isConstant) {
+                body = body.replaceAll(/@(\$+)@/g, "$1$1")
                 head = line.slice(0, lastCallBegin)
                 tail = line.slice(lastCallBegin).replace(macroCallMatch[0], body)
                 line = head + tail
@@ -109,19 +100,20 @@ function gokuro(inputStream, outputStream) {
             }
 
             // macro with arguments
-            macroCallMatch[2] = escapeDollar(macroCallMatch[2])
-            const args = parseMacroArgs(macroCallMatch[2])
-            body = body.replace(RegExp("\\$0", "g"), macroCallMatch[2])
+            const args_text = macroCallMatch[2].replaceAll("$", "@$@")
+            const args = parseMacroArgs(args_text)
+            body = body.replaceAll("\$0", args_text)
             for (let j = 0; j < args.length; j++) {
-                const dollar_num = "\\$" + (j + 1).toString()
-                body = body.replace(RegExp(dollar_num, "g"), args[j])
+                const dollar_num = "$" + (j + 1).toString()
+                body = body.replaceAll(dollar_num, args[j])
             }
             for (let j = args.length; j < 10; j++) {
-                const dollar_num = "\\$" + (j + 1).toString()
-                body = body.replace(RegExp(dollar_num, "g"), "")
+                const dollar_num = "$" + (j + 1).toString()
+                body = body.replaceAll(dollar_num, "")
             }
-            line = line.replace(macroCallMatch[0], body)
-            line = unescapeDollar(line)
+
+            body = body.replaceAll(/@(\$+)@/g, "$1$1")
+            line = line.replaceAll(macroCallMatch[0], body)
         }
 
         if (lineType == LINE_TYPE_NORMAL) {

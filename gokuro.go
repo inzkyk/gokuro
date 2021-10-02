@@ -44,17 +44,11 @@ func parseMacroArguments(s string) (ans []string) {
 	return ans
 }
 
-func quoteDollar(s string) string {
-	return strings.ReplaceAll(s, "$", "$@")
-}
-
-func unquoteDollar(s string) string {
-	return strings.ReplaceAll(s, "$@", "$")
-}
-
 var regexGlobalMacroDef = regexp.MustCompile(`^#\+MACRO: ([^\s]+) (.*)\n$`)
 var regexLocalMacroDef = regexp.MustCompile(`^#\+MACRO_LOCAL: ([^\s]+) (.*)\n$`)
 var regexMacroCall = regexp.MustCompile(`<<<(.+?)(\((.*?)\))?>>>`)
+var regexDollarsToQuote = regexp.MustCompile(`(\$+)([^0-9]|$)`)
+var regexQuotedDollars = regexp.MustCompile(`@(\$+)@`)
 
 func gokuro(in io.Reader, out io.Writer) {
 	r := bufio.NewReaderSize(in, 1024*16)
@@ -84,7 +78,7 @@ func gokuro(in io.Reader, out io.Writer) {
 				if matchOneLineMacroDef != nil {
 					macroName := matchOneLineMacroDef[1]
 					macroBody := matchOneLineMacroDef[2]
-					globalMacros[macroName] = macroBody
+					globalMacros[macroName] = regexDollarsToQuote.ReplaceAllString(macroBody, `@$1@$2`)
 					lineType = LINE_TYPE_GLOBAL_MACRO_DEFINITION
 					break
 				}
@@ -93,7 +87,7 @@ func gokuro(in io.Reader, out io.Writer) {
 				if matchLocalMacroDef != nil {
 					macroName := matchLocalMacroDef[1]
 					macroBody := matchLocalMacroDef[2]
-					localMacros[macroName] = macroBody
+					localMacros[macroName] = regexDollarsToQuote.ReplaceAllString(macroBody, `@$1@$2`)
 					lineType = LINE_TYPE_LOCAL_MACRO_DEFINITION
 					break
 				}
@@ -144,12 +138,13 @@ func gokuro(in io.Reader, out io.Writer) {
 			// calculate the replacement for the macro call.
 			constantMacro := matchMacroCall[2] == ""
 			if constantMacro {
+				macroBody = regexQuotedDollars.ReplaceAllString(macroBody, "$1")
 				line = line[:lastCallBegin] + macroBody + line[lastCallEnd:]
 				continue
 			}
 
 			// macro with arguments
-			macroArgumentsText := quoteDollar(matchMacroCall[3])
+			macroArgumentsText := strings.ReplaceAll(matchMacroCall[3], "$", "@$@")
 			macroArguments := parseMacroArguments(macroArgumentsText)
 			macroBody = strings.ReplaceAll(macroBody, "$0", macroArgumentsText)
 			for i := 0; i < len(macroArguments); i++ {
@@ -160,7 +155,8 @@ func gokuro(in io.Reader, out io.Writer) {
 				target := "$" + strconv.Itoa(i+1)
 				macroBody = strings.ReplaceAll(macroBody, target, "")
 			}
-			line = line[:lastCallBegin] + unquoteDollar(macroBody) + line[lastCallEnd:]
+			macroBody = regexQuotedDollars.ReplaceAllString(macroBody, "$1")
+			line = line[:lastCallBegin] + macroBody + line[lastCallEnd:]
 		}
 
 		if lineType == LINE_TYPE_NORMAL {

@@ -1,11 +1,12 @@
 @echo off
 
-set test_files=empty.org hello.org no_newline.org long_line.org multi_line.org macro.org macro_error.org macro_args.org macro_dollar.org macro_escaped_comma.org macro_local.org macro_defined_by_macro.org macro_combined.org
+set test_files=empty.gokuro hello.gokuro no_newline.gokuro long_line.gokuro multi_line.gokuro macro.gokuro macro_error.gokuro macro_args.gokuro macro_dollar.gokuro macro_escaped_comma.gokuro macro_local.gokuro macro_defined_by_macro.gokuro macro_combined.gokuro macro_japanese.gokuro math.gokuro
 
 if "%~1" == "all" (
 call :TestC
 call :TestGo
 call :TestJS
+call :TestJulia
 exit /b
 )
 
@@ -21,6 +22,11 @@ exit /b
 
 if "%~1" == "js" (
 call :TestJS
+exit /b
+)
+
+if "%~1" == "jl" (
+call :TestJulia
 exit /b
 )
 
@@ -56,6 +62,15 @@ exit /b
 IF NOT EXIST test\temp mkdir test\temp
 for %%f in (%test_files%) do (
 node gokuro.js < test\input\%%f > test\temp\%%f
+diff test\expected\%%f test\temp\%%f
+)
+call :cleanup
+exit /b
+
+:TestJulia
+IF NOT EXIST test\temp mkdir test\temp
+for %%f in (%test_files%) do (
+julia gokuro.jl < test\input\%%f > test\temp\%%f
 diff test\expected\%%f test\temp\%%f
 )
 call :cleanup

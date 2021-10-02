@@ -1,0 +1,18 @@
+#+MACRO: math $$0$
+<<<math(x)>>>
+<<<math(1)>>>
+<<<math(10)>>>
+<<<math(100)>>>
+#+MACRO: math1 $$1$
+<<<math1(1)>>>
+<<<math1(2)>>>
+#+MACRO: math2 $$2$
+<<<math2(FOO,1)>>>
+<<<math2(FOO,2)>>>
+#+MACRO: mathmath $$$0$$
+<<<mathmath(x)>>>
+<<<mathmath(1)>>>
+<<<mathmath(10)>>>
+<<<mathmath(100)>>>
+#+MACRO: dollardollar $$
+<<<dollardollar>>>
